@@ -1,0 +1,61 @@
+## MODIFIED Requirements
+
+### Requirement: Basket contact collects one free marble
+A player SHALL collect a free scoring marble only when that player's basket interior overlaps the marble AND the player is not already carrying a marble. Body contact with a marble SHALL NOT collect it. A player SHALL carry at most one marble. A carried marble SHALL stay at rest in the basket until shot, stolen, or the round clears it.
+
+#### Scenario: Basket scoops a free marble
+- **WHEN** an empty basket interior overlaps a free marble
+- **THEN** that player carries the marble AND the marble remains still in the basket
+
+#### Scenario: Body does not collect
+- **WHEN** a player's body overlaps a free marble AND the basket interior does not
+- **THEN** the player does not start carrying that marble AND the marble uses ordinary simulated collision against the body
+
+#### Scenario: Occupied basket does not collect a second marble
+- **WHEN** a player is already carrying a marble AND their basket overlaps a different free marble
+- **THEN** the player still carries only the first marble AND the second marble is not collected
+
+### Requirement: Empty basket catches a flying marble and body bounces it
+When a marble not currently carried overlaps an empty basket interior, the owner of that basket SHALL collect it. When a marble overlaps a player body and not that player's empty basket interior, the marble SHALL bounce using ordinary simulated collision (including existing dangerous-knockback rules).
+
+#### Scenario: Shot marble hits an empty basket
+- **WHEN** a launched marble overlaps player two's empty basket interior
+- **THEN** player two carries that marble
+
+#### Scenario: Shot marble hits a body
+- **WHEN** a launched marble overlaps player two's body AND does not overlap player two's empty basket interior
+- **THEN** player two does not collect it AND the marble continues as a simulated free body
+
+### Requirement: Held marble is launched only by a two-stage charge shot
+A player SHALL start a charge only while carrying a marble, using a press of their shoot key sampled as a distinct press on a simulation tick (key down after release, latched into that tick). The first stage SHALL read a shot direction while the player may still move. The second stage SHALL read shot power while the player is held still (velocity cleared and movement input ignored). A second press SHALL lock direction; a third press SHALL fire. Firing SHALL release the marble along the locked direction at a speed taken from the power reading AND SHALL apply a recoil impulse to the shooter opposite that direction.
+
+#### Scenario: Direction stage allows movement
+- **WHEN** a carrying player starts a charge AND is in the direction stage AND holds a movement key
+- **THEN** the player still accelerates from that input AND the marble remains carried
+
+#### Scenario: Power stage holds the player still
+- **WHEN** a carrying player has locked direction AND is in the power stage
+- **THEN** the player's velocity is treated as zero for movement AND movement keys do not accelerate the body
+
+#### Scenario: Movement during power cancels
+- **WHEN** a player is in the power stage AND applies movement input
+- **THEN** the charge ends without firing AND the player still carries the marble
+
+#### Scenario: Fire launches and recoils
+- **WHEN** a player completes the power stage with a shoot press
+- **THEN** the marble leaves the basket with velocity along the locked direction AND the player is pushed opposite that direction AND the player is no longer carrying
+
+#### Scenario: Empty basket cannot charge
+- **WHEN** a player is not carrying a marble AND presses shoot
+- **THEN** no charge starts
+
+#### Scenario: Steal cancels charge
+- **WHEN** a player is charging AND the opponent steals the carried marble
+- **THEN** the charge ends without firing
+
+### Requirement: Carried marble does not score in marble pockets
+While a marble is carried, overlap between that marble and a north or south pocket SHALL NOT register a scoring event.
+
+#### Scenario: Walk a held marble into a pocket
+- **WHEN** the round is live AND a carried marble overlaps the north pocket
+- **THEN** no marble-goal event is registered AND the marble remains carried

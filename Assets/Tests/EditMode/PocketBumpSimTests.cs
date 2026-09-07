@@ -1,0 +1,279 @@
+using System.Collections.Generic;
+using NUnit.Framework;
+using UnityEngine;
+
+namespace PocketBump.Tests
+{
+    public sealed class PocketBumpSimTests
+    {
+        static MatchSimState Started(int marbles = 1)
+        {
+            var state = MatchSim.Create(new MatchSettings { marbleCount = marbles });
+            MatchSim.StartMatch(state);
+            return state;
+        }
+
+        static void StepLive(MatchSimState state)
+        {
+            PlayerInput n = PlayerInput.Neutral;
+            for (int i = 0; i < MatchSim.KickoffTicks; i++)
+                MatchSim.Step(state, n, n);
+            Assert.That(state.Phase, Is.EqualTo(MatchState.Live));
+        }
+
+        [Test]
+        public void SameInputTapeProducesEqualChecksums()
+        {
+            var a = Started(3);
+            var b = Started(3);
+            var move = new PlayerInput { Move = Vector2.down, BoostHeld = true };
+            for (int i = 0; i < 90; i++)
+            {
+                PlayerInput i0 = i % 3 == 0 ? move : PlayerInput.Neutral;
+                PlayerInput i1 = i % 4 == 0 ? new PlayerInput { Move = Vector2.up } : PlayerInput.Neutral;
+                MatchSim.Step(a, i0, i1);
+                MatchSim.Step(b, i0, i1);
+            }
+
+            Assert.That(a.Checksum(), Is.EqualTo(b.Checksum()));
+            Assert.That(a.ScoreP1, Is.EqualTo(b.ScoreP1));
+            Assert.That(a.Players[0].Carried, Is.EqualTo(b.Players[0].Carried));
+        }
+
+        [Test]
+        public void BasketScoopsAndBodyDoesNot()
+        {
+            var state = Started();
+            StepLive(state);
+            MatchSim.DebugPlacePlayer(state, 0, Vector2.zero, Vector2.right);
+            MatchSim.DebugSetMarble(state, 0, Vector2.zero, Vector2.zero);
+            Assert.That(MatchSim.DebugCollect(state, 0, 0), Is.False);
+            Assert.That(state.Players[0].Carried, Is.EqualTo(-1));
+
+            Vector2 well = Vector2.right * ArenaLayout.BasketOffset;
+            MatchSim.DebugSetMarble(state, 0, well, Vector2.zero);
+            Assert.That(MatchSim.DebugCollect(state, 0, 0), Is.True);
+            Assert.That(state.Players[0].Carried, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void ScoopStealsAndCarriedMarbleDoesNotScore()
+        {
+            var state = Started();
+            StepLive(state);
+            MatchSim.DebugPlacePlayer(state, 0, Vector2.zero, Vector2.right);
+            MatchSim.DebugSetMarble(state, 0, Vector2.right * ArenaLayout.BasketOffset, Vector2.zero);
+            Assert.That(MatchSim.DebugCollect(state, 0, 0), Is.True);
+
+            MatchSim.DebugPlacePlayer(state, 1, new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left);
+            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.Players[1].Carried, Is.EqualTo(0));
+            Assert.That(state.Players[0].Carried, Is.EqualTo(-1));
+
+            MatchSim.DebugPlacePlayer(state, 1, new Vector2(0f, ArenaLayout.HalfHeight - 0.2f), Vector2.up);
+            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.Phase, Is.EqualTo(MatchState.Live));
+            Assert.That(state.ScoreP1, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void PlayerOneStealsFromPlayerTwoThroughStepWithoutStealBack()
+        {
+            var state = Started();
+            StepLive(state);
+            MatchSim.DebugPlacePlayer(state, 1, new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left);
+            MatchSim.DebugSetMarble(state, 0, Vector2.right * ArenaLayout.BasketOffset, Vector2.zero);
+            Assert.That(MatchSim.DebugCollect(state, 1, 0), Is.True);
+            Assert.That(state.Players[1].Carried, Is.EqualTo(0));
+
+            MatchSim.DebugPlacePlayer(state, 0, Vector2.zero, Vector2.right);
+            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.Players[0].Carried, Is.EqualTo(0));
+            Assert.That(state.Players[1].Carried, Is.EqualTo(-1));
+        }
+
+        [Test]
+        public void FullPowerShotEastRecoilsWestAndDunkOpeningIsTripled()
+        {
+            Assert.That(ArenaLayout.DunkPocketHeight, Is.EqualTo(6.45f).Within(0.001f));
+            Assert.That(ArenaLayout.MarblePocketWidth, Is.EqualTo(3.4f).Within(0.001f));
+
+            var shot = Started();
+            StepLive(shot);
+            MatchSim.DebugPlacePlayer(shot, 0, Vector2.zero, Vector2.right);
+            MatchSim.DebugSetMarble(shot, 0, Vector2.right * ArenaLayout.BasketOffset, Vector2.zero);
+            Assert.That(MatchSim.DebugCollect(shot, 0, 0), Is.True);
+            Assert.That(MatchSim.DebugShoot(shot, 0), Is.True);
+            Assert.That(MatchSim.DebugShoot(shot, 0), Is.True);
+            PlayerSim p = shot.Players[0];
+            p.ChargeTime = ArenaLayout.ChargeNeedlePeriod * 0.25f;
+            p.Velocity = Vector2.zero;
+            shot.Players[0] = p;
+            MatchSim.DebugShoot(shot, 0);
+            Assert.That(shot.Players[0].Carried, Is.EqualTo(-1));
+            Assert.That(shot.Players[0].Velocity.x, Is.LessThanOrEqualTo(-8f));
+        }
+
+        [Test]
+        public void SimultaneousDunkBeatsMarbleAndChargeRecoilFires()
+        {
+            var state = Started();
+            StepLive(state);
+            MatchSim.DebugPlacePlayer(state, 0, new Vector2(ArenaLayout.HalfWidth + ArenaLayout.Wall + 0.55f, 0f), Vector2.right);
+            MatchSim.DebugSetMarble(state, 0, new Vector2(0f, -ArenaLayout.HalfHeight - ArenaLayout.Wall - 0.55f), Vector2.zero);
+            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.ScoreP2, Is.EqualTo(1));
+            Assert.That(state.ScoreP1, Is.EqualTo(0));
+            Assert.That(state.Phase, Is.EqualTo(MatchState.Scored));
+
+            var shot = Started();
+            StepLive(shot);
+            MatchSim.DebugPlacePlayer(shot, 0, Vector2.zero, Vector2.right);
+            MatchSim.DebugSetMarble(shot, 0, Vector2.right * ArenaLayout.BasketOffset, Vector2.zero);
+            MatchSim.DebugCollect(shot, 0, 0);
+            MatchSim.DebugShoot(shot, 0);
+            MatchSim.DebugShoot(shot, 0);
+            Vector2 before = shot.Players[0].Velocity;
+            MatchSim.DebugShoot(shot, 0);
+            Assert.That(shot.Players[0].Carried, Is.EqualTo(-1));
+            Assert.That(shot.Marbles[0].Velocity.sqrMagnitude, Is.GreaterThan(0.01f));
+            Assert.That(shot.Players[0].Velocity.x, Is.LessThan(before.x));
+        }
+
+        [Test]
+        public void MarbleCoastsDangerousKnockbackHasCooldownAndKickoffIs180Ticks()
+        {
+            var state = Started();
+            Assert.That(state.Phase, Is.EqualTo(MatchState.Kickoff));
+            PlayerInput n = PlayerInput.Neutral;
+            for (int i = 0; i < MatchSim.KickoffTicks - 1; i++)
+                MatchSim.Step(state, n, n);
+            Assert.That(state.Phase, Is.EqualTo(MatchState.Kickoff));
+            MatchSim.Step(state, n, n);
+            Assert.That(state.Phase, Is.EqualTo(MatchState.Live));
+            Assert.That(state.Marbles[0].Active, Is.True);
+
+            MatchSim.DebugSetMarble(state, 0, Vector2.zero, Vector2.right * 6f);
+            MatchSim.DebugPlacePlayer(state, 0, ArenaLayout.PlayerOneSpawn, Vector2.down);
+            MatchSim.DebugPlacePlayer(state, 1, ArenaLayout.PlayerTwoSpawn, Vector2.up);
+            float previous = state.Marbles[0].Velocity.magnitude;
+            for (int i = 0; i < 8; i++)
+            {
+                MatchSim.Step(state, n, n);
+                Assert.That(state.Marbles[0].Velocity.magnitude, Is.LessThanOrEqualTo(previous + 0.02f));
+                previous = state.Marbles[0].Velocity.magnitude;
+            }
+
+            for (int i = 0; i < 180; i++)
+                MatchSim.Step(state, n, n);
+            Assert.That(state.Marbles[0].Velocity.magnitude, Is.LessThan(ArenaLayout.MarbleMinRunSpeed));
+
+            var hit = Started();
+            StepLive(hit);
+            MatchSim.DebugPlacePlayer(hit, 0, Vector2.zero, Vector2.right);
+            MatchSim.DebugSetMarble(hit, 0, new Vector2(-1.2f, 0f), Vector2.right * 12f);
+            for (int i = 0; i < 8; i++)
+                MatchSim.Step(hit, n, n);
+            Assert.That(hit.Marbles[0].DangerousImpactCount, Is.EqualTo(1));
+            int counted = hit.Marbles[0].DangerousImpactCount;
+            for (int i = 0; i < 3; i++)
+                MatchSim.Step(hit, n, n);
+            Assert.That(hit.Marbles[0].DangerousImpactCount, Is.EqualTo(counted));
+        }
+
+        [Test]
+        public void RollbackLateRemoteMatchesBaselineAndHoleAborts()
+        {
+            const int frames = 70;
+            var tape0 = new PlayerInput[frames];
+            var tape1 = new PlayerInput[frames];
+            for (int i = 0; i < frames; i++)
+            {
+                if (i % 6 == 0) tape0[i] = new PlayerInput { Move = Vector2.down };
+                if (i % 5 == 0) tape1[i] = new PlayerInput { Move = Vector2.up, BoostHeld = true };
+            }
+
+            var baseline = Started();
+            int delay = RollbackSession.DelayTicks;
+            int total = frames + 8;
+            for (int t = 0; t < total; t++)
+            {
+                PlayerInput s0 = t < frames ? tape0[t] : PlayerInput.Neutral;
+                PlayerInput s1 = t < frames ? tape1[t] : PlayerInput.Neutral;
+                PlayerInput i0 = t >= delay ? (t - delay < frames ? tape0[t - delay] : PlayerInput.Neutral) : PlayerInput.Neutral;
+                PlayerInput i1 = t >= delay ? (t - delay < frames ? tape1[t - delay] : PlayerInput.Neutral) : PlayerInput.Neutral;
+                MatchSim.Step(baseline, i0, i1);
+            }
+
+            var sessA = new RollbackSession(Started(), 0);
+            var sessB = new RollbackSession(Started(), 1);
+            var pendingA = new List<(int arrive, int tick, PlayerInput input)>();
+            var pendingB = new List<(int arrive, int tick, PlayerInput input)>();
+
+            for (int t = 0; t < frames; t++)
+            {
+                Deliver(sessA, pendingA, t);
+                Deliver(sessB, pendingB, t);
+                sessA.Advance(tape0[t]);
+                sessB.Advance(tape1[t]);
+                Assert.That(sessA.Status, Is.EqualTo(RollbackStatus.Ok));
+                Assert.That(sessB.Status, Is.EqualTo(RollbackStatus.Ok));
+                int arrive = t % 4 == 0 ? t + 5 : t + 1;
+                pendingB.Add((arrive, t + delay, tape0[t]));
+                pendingA.Add((arrive, t + delay, tape1[t]));
+            }
+
+            for (int extra = 0; extra < 8; extra++)
+            {
+                int t = frames + extra;
+                Deliver(sessA, pendingA, t);
+                Deliver(sessB, pendingB, t);
+                sessA.Advance(PlayerInput.Neutral);
+                sessB.Advance(PlayerInput.Neutral);
+            }
+
+            Assert.That(sessA.State.Checksum(), Is.EqualTo(sessB.State.Checksum()));
+            Assert.That(sessA.State.Checksum(), Is.EqualTo(baseline.Checksum()));
+
+            var hole = new RollbackSession(Started(), 0);
+            RollbackStatus status = RollbackStatus.Ok;
+            int limit = RollbackSession.BufferTicks + RollbackSession.DelayTicks + 2;
+            for (int i = 0; i < limit; i++)
+            {
+                hole.Advance(PlayerInput.Neutral);
+                status = hole.Status;
+                if (status == RollbackStatus.InputHole) break;
+            }
+
+            Assert.That(status, Is.EqualTo(RollbackStatus.InputHole));
+        }
+
+        [Test]
+        public void HandshakeRejectsSettingsMismatchAndJoinAckAssignsSeatTwo()
+        {
+            Assert.That(
+                NetplayProtocol.CanAcceptJoin(8, 1, NetplayProtocol.Version, 8, 1, NetplayProtocol.SettingsHash(8, 1)),
+                Is.True);
+            Assert.That(
+                NetplayProtocol.CanAcceptJoin(8, 1, NetplayProtocol.Version, 5, 3, NetplayProtocol.SettingsHash(5, 3)),
+                Is.False);
+            byte[] ack = LanUdpPeer.EncodeJoinAck(true, 1, 42, 8, 1);
+            Assert.That(LanUdpPeer.TryReadHeader(ack, out byte type, out int offset), Is.True);
+            Assert.That(type, Is.EqualTo(NetplayProtocol.JoinAck));
+            Assert.That(ack[offset + 1], Is.EqualTo(1));
+        }
+
+        static void Deliver(
+            RollbackSession session,
+            List<(int arrive, int tick, PlayerInput input)> pending,
+            int now)
+        {
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                if (pending[i].arrive > now) continue;
+                session.ReceiveRemote(pending[i].tick, pending[i].input);
+                pending.RemoveAt(i);
+            }
+        }
+    }
+}
