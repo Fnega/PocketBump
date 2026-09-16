@@ -3,6 +3,8 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+// 显示比分、倒计时、状态提示和赛后操作。
+// HUD 只读取 MatchSim 的结果，避免 UI 回调成为另一套比赛规则来源。
 namespace PocketBump
 {
     public sealed class MatchHud : MonoBehaviour
@@ -19,6 +21,7 @@ namespace PocketBump
             WireResultButtons();
         }
 
+        // 动态构建与正式场景使用相同命名，便于 ResolveReferences 和 PlayMode 测试定位。
         public static MatchHud Build(Transform parent)
         {
             Transform canvas = UiFactory.CreateCanvas("MatchCanvas", parent);
@@ -129,6 +132,7 @@ namespace PocketBump
             if (panel != null) _resultPanel = panel.gameObject;
         }
 
+        // 重新绑定前清空监听，避免编辑器烘焙监听和运行时监听叠加。
         void WireResultButtons()
         {
             Button[] buttons = GetComponentsInChildren<Button>(true);
@@ -172,6 +176,7 @@ namespace PocketBump
             StartCoroutine(ScorePulse());
         }
 
+        // 分数缩放只使用渲染时间，是纯表现动画，不写回确定性 MatchSim。
         IEnumerator ScorePulse()
         {
             float age = 0f;

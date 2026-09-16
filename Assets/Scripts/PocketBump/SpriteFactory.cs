@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 延迟加载 Resources 中的基础方形/圆形 Sprite，并提供运行时回退资源。
+// 集中加载让 UI 和特效共享引用，也避免每个组件自行查找资源。
 namespace PocketBump
 {
     public static class SpriteFactory

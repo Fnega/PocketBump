@@ -2,6 +2,8 @@ using System;
 using System.Net;
 using UnityEngine;
 
+// 比赛总调度器：连接输入、确定性模拟、UDP/回滚会话、场景表现与 HUD。
+// 它负责“何时推进和如何展示”，具体物理与计分规则集中在 MatchSim 中。
 namespace PocketBump
 {
     public enum MatchState
@@ -84,6 +86,7 @@ namespace PocketBump
 
         public void InitializeAuthored(MatchSettings settings, bool startImmediately = true)
         {
+            // 编辑器烘焙和运行时创建的场景都汇合到这里，避免产生两套初始化行为。
             if (_initialized) return;
             if (Arena == null || PlayerOne == null || PlayerTwo == null || Hud == null)
             {
@@ -95,7 +98,9 @@ namespace PocketBump
             Settings = settings ?? new MatchSettings();
             Settings.Clamp();
             GameLayers.ApplyCollisionMatrix();
+            // Unity FixedUpdate 与 MatchSim 的 60 Hz 对齐；模拟内部仍使用自己的固定 dt。
             Time.fixedDeltaTime = ArenaLayout.SimTickDt;
+            // 禁用自动 Physics2D 推进，防止 Rigidbody 与自定义模拟同时改变玩法对象。
             Physics2D.simulationMode = SimulationMode2D.Script;
             FrameCamera();
             PlayerOne.Director = this;
@@ -169,6 +174,7 @@ namespace PocketBump
         public static bool HasWinner(int scoreP1, int scoreP2, int pointsToWin, out int winner)
         {
             winner = -1;
+            // 达到目标分且领先至少 2 分才结束，避免 8:7 这类一分优势提前终局。
             int need = Mathf.Clamp(pointsToWin, MatchSettings.MinPointsToWin, MatchSettings.MaxPointsToWin);
             if (scoreP1 >= need && scoreP1 - scoreP2 >= 2)
             {
@@ -199,6 +205,7 @@ namespace PocketBump
         {
             if (!_initialized || _aborting) return;
             bool net = _kind != PlayKind.Local;
+            // 按键边沿先在渲染帧锁存，防止短按完整落在两个 FixedUpdate 之间。
             _sampler.LatchUpdate(net, _localSeat);
             if (net && !_handshakeDone)
                 PumpHandshake();
@@ -215,10 +222,12 @@ namespace PocketBump
             SimEvents events;
             if (_rollback != null)
             {
+                // 联机只采样本机座位；远端座位由 RollbackSession 的真实或预测输入提供。
                 PlayerInput local = _sampler.SampleNetplaySeat(_localSeat);
                 int applyTick = Sim.Tick;
                 events = _rollback.Advance(local);
                 if (_rollback.LastRollbackTick >= 0)
+                    // 被推翻 Tick 的瞬时特效不属于新历史，必须随状态一起撤销。
                     GameFx.DiscardNewerThan(_rollback.LastRollbackTick);
                 if (_rollback.Status == RollbackStatus.InputHole)
                 {
@@ -236,6 +245,7 @@ namespace PocketBump
             }
             else
             {
+                // 本地双人也走同一个 MatchSim，不维护另一套 Physics2D 玩法路径。
                 events = MatchSim.Step(Sim, _sampler.SampleLocal(0), _sampler.SampleLocal(1));
             }
 
@@ -249,10 +259,12 @@ namespace PocketBump
         void LateUpdate()
         {
             if (!_initialized || Sim == null) return;
+            // 渲染帧在前后两个 Tick 状态之间插值，隐藏固定步长带来的位置跳跃。
             float t = Time.fixedDeltaTime <= 0f
                 ? 1f
                 : Mathf.Clamp01((Time.time - Time.fixedTime) / Time.fixedDeltaTime);
             if (_rollback != null && _rollback.LastRollbackTick >= 0)
+                // 修正历史时立即显示权威结果，避免继续插值一条已经无效的轨迹。
                 t = 1f;
             ApplyViews(t);
         }
@@ -268,6 +280,7 @@ namespace PocketBump
 
         void ApplyViews(float t)
         {
+            // View 只读取状态；Transform、动画和 Rigidbody 镜像不能反向成为规则依据。
             if (_from == null || _to == null) return;
             ApplyPlayer(PlayerOne, 0, t);
             ApplyPlayer(PlayerTwo, 1, t);
@@ -302,6 +315,7 @@ namespace PocketBump
 
         void PlayEvents(SimEvents events, int tick)
         {
+            // MatchSim 只产出语义事件；这里才创建 Unity 特效，使表现对象远离可回滚规则层。
             if (events.Collected0)
                 GameFx.Pulse(events.CollectAt0, VisualPalette.PlayerColor(0), 0.4f, 1.6f, 0.28f, tick);
             if (events.Collected1)
@@ -314,8 +328,7 @@ namespace PocketBump
                 GameFx.Pulse(events.ImpactAt, VisualPalette.Danger, 0.2f, 1.1f, 0.24f, tick);
             if (events.Scored)
             {
-                float goalY = events.Scorer == 0 ? ArenaLayout.HalfHeight : -ArenaLayout.HalfHeight;
-                GameFx.Pulse(new Vector2(0f, goalY), VisualPalette.PlayerColor(events.Scorer), 0.3f, 2.4f, 0.42f, tick);
+                GameFx.Pulse(events.ScoreAt, VisualPalette.PlayerColor(events.Scorer), 0.3f, 2.4f, 0.42f, tick);
             }
         }
 
@@ -373,6 +386,7 @@ namespace PocketBump
 
         void BeginLan()
         {
+            // Host 固定为座位 0 并监听约定端口；Joiner 使用临时端口主动连接 Host。
             _lan = new LanUdpPeer();
             if (_kind == PlayKind.HostLan)
             {
@@ -411,6 +425,7 @@ namespace PocketBump
 
         void PumpHandshake()
         {
+            // 正式 Tick 0 前确认协议版本、规则、座位和双方 Ready，避免不同配置直接开局分叉。
             if (Time.realtimeSinceStartup > _handshakeDeadline)
             {
                 Abort("LAN TIMEOUT");
@@ -483,6 +498,7 @@ namespace PocketBump
         void FinishHandshake()
         {
             if (_handshakeDone) return;
+            // 握手完成后才创建共同初态和回滚会话，确保两端从同一个比赛状态开始。
             MatchSim.StartMatch(Sim);
             _rollback = new RollbackSession(Sim, _localSeat);
             _from = Sim.Clone();
@@ -496,6 +512,7 @@ namespace PocketBump
         void PumpNet()
         {
             if (_lan == null) return;
+            // UDP 无连接状态，因此用最后收包时间自行判断对端是否失联。
             if (Time.realtimeSinceStartup - _lastPacketTime > ArenaLayout.DisconnectSeconds)
             {
                 Abort("CONNECTION LOST");
@@ -521,6 +538,7 @@ namespace PocketBump
                 int checksumTick = BitConverter.ToInt32(data, offset + 14);
                 int checksum = BitConverter.ToInt32(data, offset + 18);
                 _lastAck = ack;
+                // AckTick 当前仅被记录，协议尚未基于它实现重发；可靠性主要依靠预测和回滚窗口。
                 if (_rollback != null)
                 {
                     _rollback.ReceiveRemote(tick, PlayerInput.Unpack(inputBits));
@@ -540,6 +558,7 @@ namespace PocketBump
         void SendInput(PlayerInput local, int tick)
         {
             if (_lan == null) return;
+            // 发送未来应用 Tick 的紧凑输入，并附带已确认 Tick 与稍早状态哈希用于诊断分叉。
             int checksumTick = Mathf.Max(0, Sim.Tick - 2);
             _lan.Send(LanUdpPeer.EncodeInput(new NetInputPacket
             {
@@ -555,6 +574,7 @@ namespace PocketBump
 
         void Abort(string message)
         {
+            // 所有网络失败统一走此路径：停止推进、通知对端、释放 socket 并把错误带回菜单。
             if (_aborting) return;
             _aborting = true;
             _statusMessage = message;

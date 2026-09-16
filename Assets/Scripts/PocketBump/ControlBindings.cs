@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 管理两名玩家的技能键位与 PlayerPrefs 持久化。
+// 统一校验移动键占用和重复绑定，避免一次按键意外驱动多个动作。
 namespace PocketBump
 {
     public enum SkillBinding
@@ -53,6 +55,7 @@ namespace PocketBump
             if (persist) Save();
         }
 
+        // 先完整校验再保存，保证任何时候读取到的绑定表都合法且无冲突。
         public static bool TrySet(SkillBinding slot, KeyCode key)
         {
             EnsureLoaded();
@@ -119,6 +122,7 @@ namespace PocketBump
                 "P2: ARROWS  " + Label(_p2Shoot) + " SHOOT  " + Label(_p2Boost) + " BOOST";
         }
 
+        // 延迟加载避免静态初始化阶段过早访问 PlayerPrefs，也方便测试先重置默认值。
         static void EnsureLoaded()
         {
             if (_loaded) return;
@@ -131,6 +135,7 @@ namespace PocketBump
             _loaded = true;
         }
 
+        // 启动时也验证磁盘旧数据，版本升级或手工修改 PlayerPrefs 后可自动回退默认值。
         static bool BindingsValid()
         {
             KeyCode[] keys = { _p1Shoot, _p1Boost, _p2Shoot, _p2Boost };

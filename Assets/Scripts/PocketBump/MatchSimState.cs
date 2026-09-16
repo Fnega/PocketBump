@@ -1,10 +1,13 @@
 using System;
 using UnityEngine;
 
+// 定义可完整复制的权威模拟状态，以及每 Tick 产生的一次性事件。
+// 回滚只保存这些数据；Transform、粒子和 UI 都不属于游戏事实。
 namespace PocketBump
 {
     public struct PlayerSim
     {
+        // 仅保存会改变未来规则结果的数据；颜色、网格和拖尾等表现信息不进入快照。
         public Vector2 Position;
         public Vector2 Velocity;
         public Vector2 Facing;
@@ -20,6 +23,7 @@ namespace PocketBump
 
     public struct MarbleSim
     {
+        // Carrier=-1 表示自由弹珠；被持有时位置由篮筐焊接，不参与自由碰撞与口袋得分。
         public bool Active;
         public Vector2 Position;
         public Vector2 Velocity;
@@ -46,6 +50,7 @@ namespace PocketBump
 
         public MatchSimState Clone()
         {
+            // 每 Tick 快照必须深复制数组，不能让历史记录与当前状态共享可变元素。
             var copy = new MatchSimState
             {
                 Tick = Tick,
@@ -68,6 +73,7 @@ namespace PocketBump
 
         public void CopyFrom(MatchSimState other)
         {
+            // 复用目标对象和数组进行恢复，避免回滚时替换外部持有的 State 引用。
             Tick = other.Tick;
             Phase = other.Phase;
             PhaseTicks = other.PhaseTicks;
@@ -86,6 +92,8 @@ namespace PocketBump
 
         public int Checksum()
         {
+            // 按固定字段和数组顺序混合原始浮点位；相同 Tick 的哈希不同即可判定两端状态分叉。
+            // 这是开发期一致性检测，不是密码学哈希，也不保证跨架构浮点一致。
             unchecked
             {
                 int h = Tick;
@@ -140,6 +148,7 @@ namespace PocketBump
 
         static int FloatBits(float v)
         {
+            // 使用位表示而不是格式化字符串，避免区域设置和小数舍入掩盖状态差异。
             byte[] bytes = BitConverter.GetBytes(v);
             return BitConverter.ToInt32(bytes, 0);
         }
@@ -147,10 +156,12 @@ namespace PocketBump
 
     public struct SimEvents
     {
+        // 事件是本 Tick 状态变化的表现提示，不参与下一 Tick 运算，因此不写入快照校验和。
         public bool GateOpened;
         public bool Scored;
         public int Scorer;
         public string ScoreReason;
+        public Vector2 ScoreAt;
         public bool MatchOver;
         public int Winner;
         public bool Collected0;

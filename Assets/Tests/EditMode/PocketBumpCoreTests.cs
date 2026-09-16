@@ -1,11 +1,53 @@
 using NUnit.Framework;
 using UnityEngine;
 
+// 验证无需 Play Mode 的运动、规则参数、资源结构和视口不变量。
+// 测试关注修改手感参数后仍必须成立的行为，而不是绑定某种具体实现。
 namespace PocketBump.Tests
 {
     public sealed class PocketBumpCoreTests
     {
         [Test]
+        public void MenuRegionsRepairLegacyButtonsWithoutChangingIdentityOrDuplicatingObjects()
+        {
+            var root = new GameObject("MenuRegionTest");
+            root.SetActive(false);
+            UnityEngine.EventSystems.EventSystem existing = Object.FindObjectOfType<UnityEngine.EventSystems.EventSystem>();
+            try
+            {
+                MainMenuController menu = root.AddComponent<MainMenuController>();
+                menu.BuildAuthoredHierarchy();
+                Transform home = root.transform.Find("MainMenuCanvas/MainPanel");
+                string[] names = { "Start", "HostLan", "JoinLan", "Exit" };
+                string[] parents = { "StartRegion", "ServerRegion", "ServerRegion", "ExitRegion" };
+                var buttons = new UnityEngine.UI.Button[4];
+                for (int i = 0; i < names.Length; i++)
+                {
+                    buttons[i] = home.Find(parents[i] + "/" + names[i]).GetComponent<UnityEngine.UI.Button>();
+                    buttons[i].transform.SetParent(home, false);
+                }
+                foreach (string region in new[] { "StartRegion", "ServerRegion", "ExitRegion" })
+                    Object.DestroyImmediate(home.Find(region).gameObject);
+                menu.BuildAuthoredHierarchy();
+                menu.BuildAuthoredHierarchy();
+                Assert.That(home.GetComponentsInChildren<UnityEngine.UI.Button>(true).Length, Is.EqualTo(4));
+                Assert.That(home.childCount, Is.EqualTo(4));
+                for (int i = 0; i < names.Length; i++)
+                    Assert.That(home.Find(parents[i] + "/" + names[i]).GetComponent<UnityEngine.UI.Button>(), Is.SameAs(buttons[i]));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                if (existing == null)
+                {
+                    var created = Object.FindObjectOfType<UnityEngine.EventSystems.EventSystem>();
+                    if (created != null) Object.DestroyImmediate(created.gameObject);
+                }
+            }
+        }
+
+        [Test]
+        // 从静止到移动应有加速过程，防止未来重构退化为直接设置目标速度。
         public void MovementAcceleratesWithoutInstantlyReachingTopSpeed()
         {
             Vector2 velocity = Vector2.zero;
@@ -17,6 +59,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 垂直转向仍应获得完整操控力，保证高速时不会因公式分支突然转不动。
         public void PerpendicularTurnUsesForwardAcceleration()
         {
             const float dt = 0.02f;
@@ -28,6 +71,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // Boost 提高速度但不应牺牲转向加速度，这是核心手感不变量。
         public void BoostTurnIsNotSlowerThanNormalTurn()
         {
             const float dt = 0.02f;
@@ -41,6 +85,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 反向输入先制动再掉头，用测试锁定惯性而不是瞬间反转。
         public void ReversalTakesMoreThanOnePhysicsStep()
         {
             Vector2 velocity = Vector2.up * ArenaLayout.NormalMaxSpeed;
@@ -50,6 +95,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 验证两名玩家技能键独立，同时覆盖 Windup→Boosting→Recovery 生命周期。
         public void BoostUsesIndependentKeysAndReturnsToNormal()
         {
             ControlBindings.ResetToDefaults(false);
@@ -70,6 +116,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 低速弹珠适合盘带，高速弹珠才造成额外危险击退。
         public void MarbleImpactBandsPreserveDribblingAndScaleDanger()
         {
             Assert.That(MarbleMotor.CalculateAdditionalImpulse(5f), Is.Zero);
@@ -79,6 +126,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 拒绝移动键和重复技能键，保证输入映射没有歧义。
         public void DefaultBindingsRejectDuplicatesAndMovementKeys()
         {
             ControlBindings.ResetToDefaults(false);
@@ -95,6 +143,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 朝向要平滑追踪输入，并在松键后保留，篮筐才不会瞬间跳转。
         public void FacingFollowsInputAndHoldsWhenReleased()
         {
             const float dt = 0.02f;
@@ -116,6 +165,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 空篮筐不能蓄力；力度阶段移动取消蓄力但不能凭空丢球。
         public void ChargeCannotStartEmptyAndPowerCancelKeepsCarry()
         {
             var state = MatchSim.Create(new MatchSettings());
@@ -141,6 +191,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 配置先限幅，终局同时满足目标分与领先两分。
         public void MatchRulesClampAndKeepWinByTwo()
         {
             var settings = new MatchSettings { pointsToWin = 99, marbleCount = 0 };
@@ -153,6 +204,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 规则数量的弹珠必须全部生成且初态不重叠。
         public void ArenaSpawnsConfiguredMarbleCountWithoutOverlap()
         {
             var root = new GameObject("TestRoot");
@@ -178,6 +230,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 锁定相机朝向与完整桌面取景，保证键盘上方向对应屏幕上方。
         public void AimingCameraIsUntiltedAndFramesTheTableWithWAsScreenUp()
         {
             var go = new GameObject("TestCamera");
@@ -208,6 +261,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 验证玩法对象使用 3D 网格，而 HUD 仍保持屏幕空间覆盖层。
         public void MatchPiecesUseMeshesAndHudStaysOverlay()
         {
             var root = new GameObject("MeshVisualRoot");

@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 封装两阶段蓄力射击的纯计算：转向、摆针、出射速度和后坐力。
+// 计算不依赖 MonoBehaviour，便于固定 Tick 模拟与 EditMode 测试复用。
 namespace PocketBump
 {
     public enum ChargePhase
@@ -27,6 +29,7 @@ namespace PocketBump
             else current.Normalize();
 
             if (input.sqrMagnitude < 0.0001f)
+                // 松开方向后保留最后朝向，篮筐和下一次瞄准不会跳回默认方向。
                 return current;
 
             float maxRadians = ArenaLayout.FacingTurnDegreesPerSecond * Mathf.Deg2Rad * Mathf.Max(0f, deltaTime);
@@ -51,12 +54,14 @@ namespace PocketBump
 
         public static float DirectionOffsetDegrees(float time)
         {
+            // 正弦摆针连续往返且只由累计 Tick 时间决定，重演时无需额外随机状态。
             float period = Mathf.Max(0.01f, ArenaLayout.ChargeNeedlePeriod);
             return Mathf.Sin(time * Mathf.PI * 2f / period) * ArenaLayout.ChargeDirectionMaxDegrees;
         }
 
         public static float Power01(float time)
         {
+            // 将 [-1,1] 正弦映射到 [0,1]，供表现长度、弹速和后坐力共享同一力度值。
             float period = Mathf.Max(0.01f, ArenaLayout.ChargeNeedlePeriod);
             return (Mathf.Sin(time * Mathf.PI * 2f / period) + 1f) * 0.5f;
         }

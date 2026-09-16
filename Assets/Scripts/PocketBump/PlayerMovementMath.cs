@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 封装玩家惯性移动与 Boost 状态机的无场景计算。
+// 固定输入和 deltaTime 会产生可重复结果，是本地与回滚联机共享的运动内核。
 namespace PocketBump
 {
     public enum BoostPhase
@@ -18,6 +20,7 @@ namespace PocketBump
             bool boostHeld,
             float deltaTime)
         {
+            // 显式状态机让蓄力、释放和恢复都由 Tick 决定，回滚时只恢复 phase/time 即可继续。
             deltaTime = Mathf.Max(0f, deltaTime);
 
             switch (phase)
@@ -74,6 +77,7 @@ namespace PocketBump
             deltaTime = Mathf.Max(0f, deltaTime);
             if (input.sqrMagnitude < 0.0001f)
             {
+                // 无输入时按固定制动加速度靠近零，而非瞬间停下，以保留碰撞游戏需要的惯性。
                 return Vector2.MoveTowards(
                     velocity,
                     Vector2.zero,
@@ -89,6 +93,7 @@ namespace PocketBump
                 ? Vector2.Dot(velocity / speed, direction)
                 : 1f;
 
+            // 同向输入使用前进加速度，转向/反向使用独立参数；这样可分别调节提速和操控手感。
             float acceleration;
             if (alignment >= 0.75f)
             {

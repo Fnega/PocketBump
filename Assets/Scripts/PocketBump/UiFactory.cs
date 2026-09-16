@@ -4,6 +4,8 @@ using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
+// 提供项目统一风格的 Canvas、面板、文本和按钮构建方法。
+// 菜单/HUD 共用工厂，减少重复 RectTransform 配置并支持测试动态搭建场景。
 namespace PocketBump
 {
     public static class UiFactory
@@ -15,6 +17,7 @@ namespace PocketBump
             _font = null;
         }
 
+        // 创建屏幕空间 Canvas，并确保场景存在 EventSystem，保证动态 UI 立即可交互。
         public static Transform CreateCanvas(string name, Transform parent = null)
         {
             var go = new GameObject(name);
@@ -67,6 +70,7 @@ namespace PocketBump
             return text;
         }
 
+        // 按钮的背景、文字、锚点和回调在一处组装，维持菜单与结果面板的一致结构。
         public static Button Button(
             Transform parent,
             string name,
@@ -102,6 +106,7 @@ namespace PocketBump
             return button;
         }
 
+        // 所有 UI 元素都通过同一 RectTransform 初始化，减少锚点/尺寸的重复样板代码。
         static GameObject RectObject(
             Transform parent,
             string name,
@@ -119,6 +124,7 @@ namespace PocketBump
             return go;
         }
 
+        // 优先复用缓存字体；Resources 缺失时使用 TMP 默认字体，让测试环境仍能构建 UI。
         static TMP_FontAsset Font()
         {
             if (_font != null) return _font;

@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 玩家场景对象与 PlayerSim 之间的适配层。
+// 历史方法保留给场景/测试兼容，正式比赛状态均由 MatchSim 决定。
 namespace PocketBump
 {
     [RequireComponent(typeof(Rigidbody2D))]
@@ -45,6 +47,7 @@ namespace PocketBump
             PlayerChargePresentation.Ensure(this);
         }
 
+        // presentedPosition 可是 Tick 间插值位置；其余字段取当前权威状态供表现读取。
         public void ApplySim(PlayerSim sim, Vector2 presentedPosition)
         {
             _facing = sim.Facing;
@@ -105,6 +108,7 @@ namespace PocketBump
             if (_basket != null) _basket.ApplyFacing(_facing);
         }
 
+        // 兼容旧调用；正式输入由 TickInputSampler 锁存并在 MatchSim 内推进。
         public bool HandleShootPress()
         {
             if (Director != null && Director.Sim != null)
@@ -172,6 +176,7 @@ namespace PocketBump
             _boostPhaseTime = 0f;
         }
 
+        // 调试/旧组件入口最终仍修改 Sim，避免只推动画面而遗漏权威状态。
         public void ApplyKnockback(Vector2 impulse)
         {
             if (Director == null || Director.Sim == null) return;

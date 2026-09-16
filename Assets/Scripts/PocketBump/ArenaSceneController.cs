@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 把编辑器中布置好的 Arena 场景接入运行时比赛。
+// 同时支持预置和动态创建 MatchDirector，便于正式场景与测试场景复用。
 namespace PocketBump
 {
     public sealed class ArenaSceneController : MonoBehaviour

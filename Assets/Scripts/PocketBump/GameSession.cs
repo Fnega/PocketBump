@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
+// 跨 MainMenu 与 Arena 场景保存游玩模式、规则和联机地址。
+// 菜单只负责收集选择，比赛场景只消费选择，降低两个场景之间的直接耦合。
 namespace PocketBump
 {
     public enum PlayKind
@@ -25,6 +27,7 @@ namespace PocketBump
         public string JoinAddress { get; set; } = "127.0.0.1";
         public string ErrorMessage { get; set; } = "";
 
+        // 直接打开 Arena 或运行测试时可能没有菜单预建会话，因此提供惰性兜底。
         public static GameSession Ensure()
         {
             if (_instance != null) return _instance;
@@ -50,6 +53,7 @@ namespace PocketBump
             _selectedSettings.Clamp();
         }
 
+        // 返回副本，避免本局 Clamp/握手修改静态会话中的下局默认设置。
         public MatchSettings CopySettings()
         {
             return new MatchSettings
@@ -87,6 +91,7 @@ namespace PocketBump
             SceneManager.LoadScene(ArenaScene);
         }
 
+        // 用一次性标记让返回菜单后自动展开规则面板，完成赛后修改规则流程。
         public void ModifyRules()
         {
             OpenRulesOnMenu = true;
@@ -108,6 +113,7 @@ namespace PocketBump
             return requested;
         }
 
+        // 所有开始方式共用校验入口，保证本地、Host 和 Join 使用合法范围。
         void StoreRules(int pointsToWin, int marbleCount)
         {
             _selectedSettings.pointsToWin = pointsToWin;

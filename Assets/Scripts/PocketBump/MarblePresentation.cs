@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 根据弹珠速度更新网格、颜色和拖尾等视觉效果。
+// 视觉反馈读取 MarbleMotor 的模拟镜像，但不反向修改比赛规则。
 namespace PocketBump
 {
     [RequireComponent(typeof(MarbleMotor))]
@@ -17,6 +19,7 @@ namespace PocketBump
             if (_rim == null && rim != null) _rim = rim.GetComponent<MeshRenderer>();
         }
 
+        // 网格和 TrailRenderer 只创建一次，后续配合弹珠对象池反复启用。
         public void Initialize()
         {
             _motor = GetComponent<MarbleMotor>();
@@ -45,6 +48,7 @@ namespace PocketBump
             _trail.emitting = false;
         }
 
+        // 危险色由模拟速度阈值决定，帮助玩家读取高速弹珠的额外击退风险。
         void Update()
         {
             if (_motor == null || _trail == null) return;

@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 管理双人输入延迟、远端输入预测、逐 Tick 快照和迟到输入回滚。
+// 会话只重演 MatchSim，不触碰场景对象，因此修正历史的成本可控且结果可校验。
 namespace PocketBump
 {
     public enum RollbackStatus
@@ -13,7 +15,8 @@ namespace PocketBump
     {
         public const int DelayTicks = ArenaLayout.InputDelayTicks;
         public const int BufferTicks = ArenaLayout.RollbackBufferTicks;
-        // Inputs arrive DelayTicks ahead of applyTick; keep those slots off the rollback window.
+        // 输入会提前 DelayTicks 写入未来 Tick，因此输入环形表要比快照窗口多留这些槽位，
+        // 否则未来输入可能覆盖仍处在回滚窗口内的旧输入。
         const int StoreTicks = BufferTicks + DelayTicks + 1;
 
         readonly int _localSeat;
@@ -39,6 +42,7 @@ namespace PocketBump
 
         public RollbackSession(MatchSimState initial, int localSeat)
         {
+            // initial 永久保留 Tick 0 前的基线；当最早 Tick 回滚且没有前一帧快照时从这里恢复。
             _initial = initial.Clone();
             State = initial;
             _localSeat = localSeat;
@@ -55,11 +59,13 @@ namespace PocketBump
 
         public void QueueLocal(int tick, PlayerInput input)
         {
+            // 本地输入也按 Tick 存储，而不是在重演时重新读键盘；历史重演必须使用原始输入。
             Set(_local, _localTick, tick, input);
         }
 
         public void ReceiveRemote(int tick, PlayerInput input)
         {
+            // 迟到输入先入表，Advance 会把它和当时实际使用的预测输入比较。
             Set(_remote, _remoteTick, tick, input);
             _lastRemote = input;
             _haveRemote = true;
@@ -72,11 +78,13 @@ namespace PocketBump
             Status = RollbackStatus.Ok;
             LastRollbackTick = -1;
             int applyTick = State.Tick;
+            // 双方统一延迟 2 Tick：用少量固定操作延迟换取更多报文按时到达，减少回滚频率。
             QueueLocal(applyTick + DelayTicks, sampledNow);
 
             int fallingOut = applyTick - BufferTicks;
             if (fallingOut >= DelayTicks && !HasStore(_remoteTick, fallingOut))
             {
+                // 必需输入一旦老到将被环形缓冲覆盖，就无法再安全修正，只能报告连接缺口。
                 Status = RollbackStatus.InputHole;
                 return default;
             }
@@ -85,6 +93,7 @@ namespace PocketBump
             int minCheck = Mathf.Max(0, applyTick - BufferTicks + 1);
             for (int t = minCheck; t < applyTick; t++)
             {
+                // 只有真实输入和当时使用的输入都存在时才比较；最早的不一致 Tick 是回滚起点。
                 if (!HasStore(_remoteTick, t) || !HasStore(_usedRemoteTick, t)) continue;
                 if (!_usedRemote[StoreIndex(t)].EqualsInput(_remote[StoreIndex(t)]))
                 {
@@ -95,6 +104,7 @@ namespace PocketBump
 
             if (rollbackFrom >= 0)
             {
+                // 恢复到错误发生前，然后按原本地输入 + 最新真实/预测远端输入重演到当前 Tick。
                 LastRollbackTick = rollbackFrom;
                 RestoreBefore(rollbackFrom);
                 for (int t = rollbackFrom; t < applyTick; t++)
@@ -111,6 +121,7 @@ namespace PocketBump
                 HasBuf(_afterTick, remoteChecksumTick.Value) &&
                 _checksums[BufIndex(remoteChecksumTick.Value)] != remoteChecksum)
             {
+                // 相同 Tick 的权威状态哈希不同说明双方已分叉；宁可显式中止也不静默错局。
                 Status = RollbackStatus.Desync;
             }
 
@@ -128,6 +139,7 @@ namespace PocketBump
             PlayerInput local = LocalFor(tick);
             PlayerInput remote = RemoteFor(tick);
             _usedRemote[StoreIndex(tick)] = remote;
+            // 记录“本次实际用了什么远端输入”，未来真实输入到达后才能知道预测是否错误。
             _usedRemoteTick[StoreIndex(tick)] = tick;
             PlayerInput i0 = _localSeat == 0 ? local : remote;
             PlayerInput i1 = _localSeat == 0 ? remote : local;
@@ -163,6 +175,7 @@ namespace PocketBump
         {
             if (HasStore(_remoteTick, tick))
                 return _remote[StoreIndex(tick)];
+            // 当前 Tick 未到达时沿用最近远端意图；连续移动比每帧回到 Neutral 更符合玩家行为。
             return _haveRemote ? _lastRemote : PlayerInput.Neutral;
         }
 
@@ -171,6 +184,7 @@ namespace PocketBump
             if (tick < 0) return;
             int i = StoreIndex(tick);
             arr[i] = input;
+            // 环形数组会重复使用槽位，stamp 用绝对 Tick 区分“当前数据”与旧周期残留。
             stamps[i] = tick;
         }
 

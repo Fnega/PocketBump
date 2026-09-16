@@ -3,6 +3,8 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+// 构建并控制主菜单、规则设置、局域网加入和按键重绑定界面。
+// 同时兼容编辑器烘焙层级与运行时动态 UI，便于正式场景和测试复用。
 namespace PocketBump
 {
     public sealed class MainMenuController : MonoBehaviour
@@ -28,13 +30,14 @@ namespace PocketBump
                 BuildUi();
             ResolveReferences();
             EnsureControlsUi();
-            EnsureLanUi();
+            EnsureHomeRegions();
             WireButtons();
             ShowRules(session.ConsumeOpenRulesRequest());
             ShowJoin(false);
             ShowError(session.ErrorMessage);
         }
 
+        // 编辑器烘焙时可显式重建层级；运行时也调用同一套构建函数，避免两份 UI 定义。
         public void BuildAuthoredHierarchy()
         {
             _pointsToWin = MatchSettings.DefaultPointsToWin;
@@ -43,12 +46,13 @@ namespace PocketBump
                 BuildUi();
             ResolveReferences();
             EnsureControlsUi();
-            EnsureLanUi();
+            EnsureHomeRegions();
             WireButtons();
             ShowRules(false);
             ShowJoin(false);
         }
 
+        // 键位监听必须逐渲染帧检查 KeyDown；完成绑定后立即退出监听，避免同一键重复处理。
         void Update()
         {
             if (_rulesPanel == null || !_rulesPanel.activeSelf) return;
@@ -76,6 +80,7 @@ namespace PocketBump
                 ShowRules(false);
         }
 
+        // 代码化创建默认 UI，使空场景也能启动，并为 PlayMode 测试提供稳定对象名称。
         void BuildUi()
         {
             Transform canvas = UiFactory.CreateCanvas("MainMenuCanvas", transform);
@@ -340,41 +345,73 @@ namespace PocketBump
                 BuildControlsSection();
         }
 
-        void EnsureLanUi()
+        void EnsureHomeRegions()
         {
             if (_mainPanel == null) return;
-            var rect = _mainPanel.GetComponent<RectTransform>();
-            if (rect != null)
-                rect.sizeDelta = new Vector2(470f, 520f);
-            if (_mainPanel.transform.Find("HostLan") == null)
-            {
-                UiFactory.Button(
-                    _mainPanel.transform,
-                    "HostLan",
-                    "HOST LAN",
-                    new Vector2(0.5f, 0.64f),
-                    Vector2.zero,
-                    new Vector2(300f, 64f),
-                    VisualPalette.Gate,
-                    OpenHostRules);
-            }
-
-            if (_mainPanel.transform.Find("JoinLan") == null)
-            {
-                UiFactory.Button(
-                    _mainPanel.transform,
-                    "JoinLan",
-                    "JOIN LAN",
-                    new Vector2(0.5f, 0.44f),
-                    Vector2.zero,
-                    new Vector2(300f, 64f),
-                    VisualPalette.PlayerTwo,
-                    () => ShowJoin(true));
-            }
+            LayoutRect(_mainPanel.transform, new Vector2(0.5f, 0.36f), Vector2.zero,
+                new Vector2(520f, 630f));
+            _mainPanel.GetComponent<Image>().color = Color.clear;
+            Transform start = EnsureRegion("StartRegion", "LOCAL PLAY", 230f, 140f, VisualPalette.PlayerOne);
+            Transform server = EnsureRegion("ServerRegion", "SERVER / LAN", 34f, 220f, VisualPalette.Gate);
+            Transform exit = EnsureRegion("ExitRegion", "EXIT", -162f, 140f, VisualPalette.Danger);
+            EnsureHomeButton(start, "Start", "START", -22f, VisualPalette.PlayerOne);
+            EnsureHomeButton(server, "HostLan", "HOST LAN", 18f, VisualPalette.Gate);
+            EnsureHomeButton(server, "JoinLan", "JOIN LAN", -58f, VisualPalette.PlayerTwo);
+            EnsureHomeButton(exit, "Exit", "EXIT", -22f, VisualPalette.Danger);
+            if (_errorText == null)
+                _errorText = UiFactory.Text(_mainPanel.transform, "Error", "", 18f,
+                    TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), Vector2.zero,
+                    new Vector2(500f, 60f), VisualPalette.Danger);
+            LayoutRect(_errorText.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -275f),
+                new Vector2(500f, 60f));
+            _errorText.enableWordWrapping = true;
+            _errorText.enableAutoSizing = true;
+            _errorText.fontSizeMin = 12f;
+            _errorText.fontSizeMax = 18f;
+            _errorText.overflowMode = TextOverflowModes.Ellipsis;
 
             Transform canvas = transform.Find("MainMenuCanvas");
             if (_joinPanel == null && canvas != null)
                 BuildJoinPanel(canvas);
+        }
+
+        Transform EnsureRegion(string name, string title, float y, float height, Color accent)
+        {
+            Transform region = _mainPanel.transform.Find(name);
+            if (region == null)
+                region = UiFactory.Panel(_mainPanel.transform, name, new Vector2(0.5f, 0.5f),
+                    Vector2.zero, Vector2.zero,
+                    VisualPalette.WithAlpha(VisualPalette.TabletopAccent, 0.94f)).transform;
+            LayoutRect(region, new Vector2(0.5f, 0.5f), new Vector2(0f, y), new Vector2(470f, height));
+            Transform heading = region.Find("Heading");
+            if (heading == null)
+                heading = UiFactory.Text(region, "Heading", title, 22f, TextAlignmentOptions.Center,
+                    new Vector2(0.5f, 1f), Vector2.zero, new Vector2(420f, 32f), accent).transform;
+            LayoutRect(heading, new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(420f, 32f));
+            return region;
+        }
+
+        void EnsureHomeButton(Transform region, string name, string label, float y, Color color)
+        {
+            Button found = null;
+            foreach (Button button in _mainPanel.GetComponentsInChildren<Button>(true))
+                if (button.name == name) { found = button; break; }
+            if (found == null)
+                found = UiFactory.Button(region, name, label, new Vector2(0.5f, 0.5f),
+                    Vector2.zero, new Vector2(300f, 64f), color, () => { });
+            found.transform.SetParent(region, false);
+            LayoutRect(found.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, y), new Vector2(300f, 64f));
+        }
+
+        static void LayoutRect(Transform target, Vector2 anchor, Vector2 offset, Vector2 size)
+        {
+            var rect = target.GetComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = anchor;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.localScale = Vector3.one;
+            rect.localRotation = Quaternion.identity;
+            rect.anchoredPosition = offset;
+            rect.sizeDelta = size;
         }
 
         void BuildControlsSection()
@@ -431,6 +468,7 @@ namespace PocketBump
                 () => BeginListen(slot));
         }
 
+        // 已烘焙场景通过约定名称恢复序列化引用，允许控制器脚本独立重载。
         void ResolveReferences()
         {
             if (_mainPanel == null)
@@ -465,6 +503,7 @@ namespace PocketBump
             }
         }
 
+        // 先清除旧监听再绑定，防止 Awake/烘焙重建后一次点击触发多次场景跳转。
         void WireButtons()
         {
             Button[] buttons = GetComponentsInChildren<Button>(true);
@@ -538,6 +577,7 @@ namespace PocketBump
             else _marblesValue = value;
         }
 
+        // 进入一次性按键捕获状态；真正合法性检查交给 ControlBindings 统一处理。
         void BeginListen(SkillBinding slot)
         {
             _listening = slot;
@@ -551,6 +591,7 @@ namespace PocketBump
             next();
         }
 
+        // UI 增减同样经过 MatchSettings 边界，网络握手双方才会对相同规则求哈希。
         void Nudge(bool points, int delta)
         {
             if (points)
@@ -597,6 +638,7 @@ namespace PocketBump
             text.enableWordWrapping = false;
         }
 
+        // KeyCode 没有统一“任意键”事件，因此遍历枚举并返回当前帧第一个有效按键。
         static bool TryReadPressedKey(out KeyCode key)
         {
             foreach (KeyCode candidate in Enum.GetValues(typeof(KeyCode)))
@@ -613,6 +655,7 @@ namespace PocketBump
             return false;
         }
 
+        // 将菜单值写入跨场景 GameSession，再由 ArenaSceneController 创建本局状态。
         void StartGame()
         {
             _listening = null;
@@ -622,6 +665,7 @@ namespace PocketBump
                 GameSession.Instance.BeginMatch(_pointsToWin, _marbleCount);
         }
 
+        // Join 地址留到 Arena 初始化 socket 时解析，错误可沿统一 Abort 流程返回菜单。
         void ConfirmJoin()
         {
             string address = _joinAddress != null ? _joinAddress.text : "127.0.0.1";

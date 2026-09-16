@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 用 Unity 基础 Primitive 网格快速创建统一材质的桌面、角色和装饰模型。
+// 运行时移除 Primitive 自带碰撞体，防止视觉网格意外介入自定义模拟。
 namespace PocketBump
 {
     /// Built-in primitives with 3D colliders stripped so 2D physics stays in charge.
@@ -81,6 +83,7 @@ namespace PocketBump
             ApplyColor(renderer.sharedMaterial, color);
         }
 
+        // 复用共享网格，但为每个对象创建独立材质实例，允许玩家/状态颜色独立变化。
         public static MeshRenderer Apply(GameObject host, Mesh mesh, Color color)
         {
             StripSprite(host);
@@ -142,6 +145,7 @@ namespace PocketBump
         static Mesh CubeMesh => _cube != null ? _cube : (_cube = Grab(PrimitiveType.Cube));
         static Mesh CylinderMesh => _cylinder != null ? _cylinder : (_cylinder = Grab(PrimitiveType.Cylinder));
 
+        // 临时创建 Primitive 只为提取 Unity 内置网格，随后立即销毁宿主对象并缓存网格。
         static Mesh Grab(PrimitiveType type)
         {
             var temp = GameObject.CreatePrimitive(type);
@@ -165,6 +169,7 @@ namespace PocketBump
             if (sprite != null) DestroySafe(sprite);
         }
 
+        // 自定义 MatchSim 已负责碰撞；移除视觉 Primitive 的 Collider 可避免出现第二套物理事实。
         static void Strip3DColliders(GameObject host)
         {
             Collider[] colliders = host.GetComponents<Collider>();

@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 编辑器启动时运行轻量级不变量检查，尽早暴露关键参数或规则被改坏的问题。
+// 它只提供快速反馈，完整行为仍由 EditMode/PlayMode 测试覆盖。
 namespace PocketBump
 {
     public static class PocketBumpDiagnostics

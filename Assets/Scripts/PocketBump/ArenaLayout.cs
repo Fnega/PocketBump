@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 集中保存竞技场尺寸、运动手感和网络时序参数。
+// 模拟与表现共享同一组常量，避免规则在多处硬编码后出现逻辑/画面偏差。
 namespace PocketBump
 {
     public static class ArenaLayout

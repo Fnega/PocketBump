@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 统一定义 Physics2D 图层和过滤关系。
+// 玩法由 MatchSim 裁决，但场景仍保留碰撞体，因此要关闭无意义的物理组合。
 namespace PocketBump
 {
     public static class GameLayers

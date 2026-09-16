@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 构建并旋转玩家前方的篮筐表现，包括边框与内部 well 触发区。
+// MatchSim 使用同尺寸 OBB 处理权威收集/抢夺；触发器仅保留场景兼容入口。
 namespace PocketBump
 {
     public sealed class PlayerBasket : MonoBehaviour
@@ -12,6 +14,7 @@ namespace PocketBump
         public Transform Well => _well;
         public bool IsEmpty => _motor == null || !_motor.IsCarrying;
 
+        // 保证每名玩家只有一个篮筐组件；动态场景和烘焙场景都可安全重复调用。
         public static PlayerBasket Ensure(PlayerMotor motor)
         {
             if (motor == null) return null;
@@ -42,6 +45,7 @@ namespace PocketBump
             ApplyFacing(_motor != null ? _motor.Facing : Vector2.down);
         }
 
+        // 朝向由模拟平滑计算，本层只把二维方向映射为场景旋转。
         public void ApplyFacing(Vector2 facing)
         {
             if (facing.sqrMagnitude < 0.0001f) facing = Vector2.down;
@@ -77,6 +81,7 @@ namespace PocketBump
             _visual = MeshFactory.AddCube(go, VisualPalette.WithAlpha(identity, 0.55f));
         }
 
+        // 三条边框保留前方开口；收集判定使用内部 well，而不是边框碰撞本身。
         void BuildRims()
         {
             float w = ArenaLayout.BasketWidth;
@@ -114,6 +119,7 @@ namespace PocketBump
                 identity);
         }
 
+        // Well 是篮筐内部语义区。正式模拟用同尺寸 OBB，Trigger 只兼容旧场景。
         void BuildWell()
         {
             Transform existing = transform.Find("Well");
@@ -135,6 +141,7 @@ namespace PocketBump
             well.Basket = this;
         }
 
+        // 旧 Physics2D 回调转交 PlayerMotor；权威 MatchSim 不依赖触发器调用顺序。
         public void HandleWellOverlap(Collider2D other)
         {
             if (_motor == null || other == null) return;

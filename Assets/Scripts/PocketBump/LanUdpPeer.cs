@@ -3,10 +3,13 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 
+// 定义局域网对战的应用层 UDP 报文，并封装非阻塞收发。
+// UDP 只运输数据报；输入预测、回滚和超时策略由上层负责。
 namespace PocketBump
 {
     public static class NetplayProtocol
     {
+        // Magic 过滤不属于本游戏的 UDP 数据；Version 则阻止不同报文布局的客户端互联。
         public const int Version = 1;
         public const int Magic = 0x50423031;
         public const byte Join = 1;
@@ -17,6 +20,7 @@ namespace PocketBump
 
         public static int SettingsHash(int pointsToWin, int marbleCount)
         {
+            // 握手时用一个紧凑摘要确认双方比赛规则一致；它用于防误配，不承担安全校验。
             unchecked
             {
                 return (pointsToWin * 397) ^ marbleCount ^ (Version * 17);
@@ -39,11 +43,13 @@ namespace PocketBump
 
     public struct NetInputPacket
     {
+        // 每包只同步输入，不同步 Transform；双方用相同初态和输入独立推进 MatchSim。
         public int MatchId;
         public int Tick;
         public byte Seat;
         public byte InputBits;
         public int AckTick;
+        // AckTick 表示已看到的远端进度。目前只携带/记录，尚未用于自动重传。
         public int ChecksumTick;
         public int Checksum;
     }
@@ -57,6 +63,7 @@ namespace PocketBump
 
         public bool Bind(int port)
         {
+            // Host 绑定固定端口供 Joiner 查找，并设为非阻塞以免主线程等待网络。
             Close();
             try
             {
@@ -74,6 +81,7 @@ namespace PocketBump
 
         public bool BindEphemeral()
         {
+            // Joiner 让操作系统分配临时端口，避免与 Host 的固定监听端口冲突。
             Close();
             try
             {
@@ -103,6 +111,7 @@ namespace PocketBump
 
         public void Send(byte[] data)
         {
+            // UDP 发送失败不会抛到游戏循环；上层会通过超时/InputHole 给玩家一致的错误流程。
             if (_udp == null || _remote == null) return;
             try
             {
@@ -121,6 +130,7 @@ namespace PocketBump
             try
             {
                 if (_udp.Available <= 0) return false;
+                // 每帧由 MatchDirector 循环抽干当前队列，不在这里阻塞等待下一包。
                 IPEndPoint any = new IPEndPoint(IPAddress.Any, 0);
                 data = _udp.Receive(ref any);
                 from = any;
@@ -169,6 +179,7 @@ namespace PocketBump
 
         public static byte[] EncodeInput(NetInputPacket packet)
         {
+            // 固定字段顺序让解析无需反射/序列化库；输入本身已由 PlayerInput 压成 1 byte。
             var w = new ByteWriter();
             w.Magic();
             w.WriteByte(NetplayProtocol.Input);
@@ -193,6 +204,7 @@ namespace PocketBump
 
         public static bool TryReadHeader(byte[] data, out byte type, out int offset)
         {
+            // 先做最小长度和 Magic 校验，后续再由具体消息分支检查自己的字段长度。
             type = 0;
             offset = 0;
             if (data == null || data.Length < 5) return false;

@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 集中定义玩家身份色、场地色和共享材质。
+// 表现层通过玩家索引取色，保证菜单、HUD、模型和特效的视觉语言一致。
 namespace PocketBump
 {
     public static class VisualPalette

@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 根据玩家索引和运动状态更新网格颜色、朝向和拖尾。
+// 将视觉表现与碰撞/得分分离，避免美术变化破坏模拟一致性。
 namespace PocketBump
 {
     [RequireComponent(typeof(PlayerMotor))]
@@ -19,6 +21,7 @@ namespace PocketBump
             if (_motor != null) _identity = VisualPalette.PlayerColor(_motor.PlayerIndex);
         }
 
+        // 玩家索引决定身份色；视觉缩放与 MatchSim 的玩家半径保持一致。
         public void Initialize(int playerIndex)
         {
             _motor = GetComponent<PlayerMotor>();
@@ -50,6 +53,7 @@ namespace PocketBump
             ApplyTrail(false);
         }
 
+        // 拖尾与发光使用渲染帧更新，因为这些信息不进入模拟和校验和。
         void Update()
         {
             if (_motor == null || _trail == null) return;

@@ -5,11 +5,67 @@ using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using UnityEngine.UI;
 
+// 在真实场景生命周期中验证菜单、比赛、表现对象与模拟状态的集成流程。
+// EditMode 已覆盖算法细节，这里保留必须依赖场景加载和 MonoBehaviour 的端到端检查。
 namespace PocketBump.Tests
 {
     public sealed class PocketBumpFlowTests
     {
         [UnityTest]
+        public IEnumerator ThreeRegionHomePreservesNavigationAndRuntimeParity()
+        {
+            yield return LoadScene(GameSession.MainMenuScene);
+            MainMenuController authored = Object.FindObjectOfType<MainMenuController>();
+            AssertHomeRegions(authored);
+            var runtimeRoot = new GameObject("RuntimeMenuParity");
+            try
+            {
+                MainMenuController runtime = runtimeRoot.AddComponent<MainMenuController>();
+                AssertHomeRegions(runtime);
+                Transform authoredHome = authored.transform.Find("MainMenuCanvas/MainPanel");
+                Transform runtimeHome = runtime.transform.Find("MainMenuCanvas/MainPanel");
+                foreach (string name in new[] { "StartRegion", "ServerRegion", "ExitRegion", "Error" })
+                {
+                    var a = authoredHome.Find(name).GetComponent<RectTransform>();
+                    var b = runtimeHome.Find(name).GetComponent<RectTransform>();
+                    Assert.That(b.sizeDelta, Is.EqualTo(a.sizeDelta));
+                    Assert.That(b.anchoredPosition, Is.EqualTo(a.anchoredPosition));
+                }
+            }
+            finally { Object.DestroyImmediate(runtimeRoot); }
+
+            foreach (string action in new[] { "Start", "HostLan", "JoinLan" })
+            {
+                Click(action);
+                Assert.That(authored.transform.Find("MainMenuCanvas/MainPanel").gameObject.activeSelf, Is.False);
+                string panel = action == "JoinLan" ? "JoinPanel" : "RuleSetupPanel";
+                Assert.That(authored.transform.Find("MainMenuCanvas/" + panel).gameObject.activeSelf, Is.True);
+                Click(action == "JoinLan" ? "JoinBack" : "Back");
+                AssertHomeRegions(authored);
+                Assert.That(Object.FindObjectOfType<MatchDirector>(), Is.Null);
+            }
+            LogAssert.Expect(LogType.Log, "Exit requested (ignored while running in the Unity Editor).");
+            Click("Exit");
+            AssertHomeRegions(authored);
+        }
+
+        static void AssertHomeRegions(MainMenuController menu)
+        {
+            Transform home = menu.transform.Find("MainMenuCanvas/MainPanel");
+            Assert.That(home.gameObject.activeInHierarchy, Is.True);
+            string[] names = { "StartRegion/Start", "ServerRegion/HostLan", "ServerRegion/JoinLan", "ExitRegion/Exit" };
+            foreach (string path in names)
+            {
+                Transform button = home.Find(path);
+                Assert.That(button, Is.Not.Null, path);
+                Assert.That(button.gameObject.activeInHierarchy, Is.True);
+                Assert.That(button.parent.Find("Heading"), Is.Not.Null);
+            }
+            Assert.That(home.GetComponentsInChildren<Button>(true).Length, Is.EqualTo(4));
+        }
+
+        [UnityTest]
+        // 从菜单改规则进入 Arena，再返回修改，验证跨场景 GameSession 的完整数据流。
         public IEnumerator MenuRulesArenaAndModifyRulesFlowTransfersSettings()
         {
             yield return LoadScene(GameSession.MainMenuScene);
@@ -49,6 +105,7 @@ namespace PocketBump.Tests
         }
 
         [UnityTest]
+        // 赛后重赛保留规则，返回主页离开比赛，覆盖结果面板的三个导航入口。
         public IEnumerator ResultRematchAndMainMenuActionsPreserveAndLeaveMatch()
         {
             GameSession.Instance.BeginMatch(4, 2);
@@ -73,6 +130,7 @@ namespace PocketBump.Tests
         }
 
         [UnityTest]
+        // 在真实 View 同步下确认速度分级、冷却和弹珠击退最终可造成玩家掉落。
         public IEnumerator MarbleImpactBandsTransferEnergyRespectCooldownAndCanDunk()
         {
             GameSession.Instance.BeginMatch(8, 1);
@@ -103,6 +161,7 @@ namespace PocketBump.Tests
         }
 
         [UnityTest]
+        // 无外力弹珠应单调减速至静止，防止碰撞/阻力实现意外注入能量。
         public IEnumerator IsolatedMarbleCoastsToRestWithoutSpeedingUp()
         {
             GameSession.Instance.BeginMatch(8, 1);
@@ -128,6 +187,7 @@ namespace PocketBump.Tests
         }
 
         [UnityTest]
+        // 端到端区分篮筐收集、身体反弹和对手抢夺三种空间关系。
         public IEnumerator BasketCollectsOnWellHitBodyBouncesAndStealTransfers()
         {
             GameSession.Instance.BeginMatch(8, 1);
@@ -153,6 +213,7 @@ namespace PocketBump.Tests
         }
 
         [UnityTest]
+        // 被持有弹珠经过球门不计分，释放后进入相同区域才产生得分。
         public IEnumerator CarriedMarbleDoesNotScoreAndFreeMarbleDoes()
         {
             GameSession.Instance.BeginMatch(8, 1);
@@ -180,7 +241,8 @@ namespace PocketBump.Tests
         }
 
         [UnityTest]
-        public IEnumerator FreeMarbleInNorthPocketStillScores()
+        // 自由弹珠进入 P1 防守的北门时，应由 P2 得分并结束当前回合。
+        public IEnumerator FreeMarbleInNorthPocketScoresForPlayerTwo()
         {
             GameSession.Instance.BeginMatch(8, 1);
             yield return null;
@@ -192,15 +254,42 @@ namespace PocketBump.Tests
             director.DebugSetMarble(0, new Vector2(0f, ArenaLayout.HalfHeight + ArenaLayout.Wall + 0.55f), Vector2.zero);
             for (int i = 0; i < 20 && director.State == MatchState.Live; i++)
                 yield return new WaitForFixedUpdate();
-            Assert.That(director.ScoreP1, Is.EqualTo(1));
+            Assert.That(director.ScoreP1, Is.EqualTo(0));
+            Assert.That(director.ScoreP2, Is.EqualTo(1));
+            Assert.That(director.State, Is.EqualTo(MatchState.Scored));
+            Assert.That(director.Sim.LastScorer, Is.EqualTo(1));
+            Assert.That(director.Sim.LastScoreReason, Is.EqualTo("P2 SCORES - P1 POCKET"));
         }
 
+        [UnityTest]
+        // 自由弹珠进入 P2 防守的南门时，应由 P1 得分并结束当前回合。
+        public IEnumerator FreeMarbleInSouthPocketScoresForPlayerOne()
+        {
+            GameSession.Instance.BeginMatch(8, 1);
+            yield return null;
+            MatchDirector director = Object.FindObjectOfType<MatchDirector>();
+            yield return new WaitForSeconds(ArenaLayout.KickoffSeconds + 0.2f);
+
+            director.DebugPlacePlayer(0, ArenaLayout.PlayerOneSpawn, Vector2.down);
+            director.DebugPlacePlayer(1, ArenaLayout.PlayerTwoSpawn, Vector2.up);
+            director.DebugSetMarble(0, new Vector2(0f, -ArenaLayout.HalfHeight - ArenaLayout.Wall - 0.55f), Vector2.zero);
+            for (int i = 0; i < 20 && director.State == MatchState.Live; i++)
+                yield return new WaitForFixedUpdate();
+            Assert.That(director.ScoreP1, Is.EqualTo(1));
+            Assert.That(director.ScoreP2, Is.EqualTo(0));
+            Assert.That(director.State, Is.EqualTo(MatchState.Scored));
+            Assert.That(director.Sim.LastScorer, Is.EqualTo(0));
+            Assert.That(director.Sim.LastScoreReason, Is.EqualTo("P1 SCORES - P2 POCKET"));
+        }
+
+        // 等待异步场景加载完成后再多让一帧，使 Awake/Start 创建的对象全部就绪。
         static IEnumerator LoadScene(string sceneName)
         {
             SceneManager.LoadScene(sceneName);
             yield return null;
         }
 
+        // 通过稳定对象名定位按钮，测试的是用户路径而非直接调用控制器私有方法。
         static void Click(string objectName)
         {
             GameObject go = GameObject.Find(objectName);

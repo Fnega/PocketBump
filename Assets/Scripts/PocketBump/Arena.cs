@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// 构建场地墙体、球门、中央挡板和弹珠显示对象。
+// 几何尺寸全部取自 ArenaLayout，确保场景模型与 MatchSim 的碰撞边界一致。
 namespace PocketBump
 {
     public sealed class Arena : MonoBehaviour
@@ -15,6 +17,7 @@ namespace PocketBump
         public PhysicsMaterial2D BounceMat;
         bool _gateOpen;
 
+        // 动态构建路径供测试和缺少烘焙场景时使用；生成物仍读取统一布局参数。
         public static Arena Build(Transform parent)
         {
             var root = new GameObject("Arena");
@@ -45,6 +48,7 @@ namespace PocketBump
             return mat;
         }
 
+        // 南北墙为弹珠球门留缺口，东西墙为玩家 dunk 口留缺口；切分须与 MatchSim AABB 一致。
         void BuildWalls(Transform parent)
         {
             float w = ArenaLayout.HalfWidth;
@@ -98,6 +102,7 @@ namespace PocketBump
             }
         }
 
+        // 开球倒计时用中央挡板隔开双方；MatchSim 决定时机，本对象只同步显示和兼容碰撞体。
         void BuildGate(Transform parent)
         {
             var go = new GameObject("CenterGate");
@@ -208,6 +213,7 @@ namespace PocketBump
             _gateOpen = open;
         }
 
+        // 清理旧兼容对象；正式回合通常使用对象池与 SetActive，而不会重复创建/销毁。
         public void ClearMarbles()
         {
             MarbleMotor[] motors = FindObjectsOfType<MarbleMotor>();
@@ -228,6 +234,7 @@ namespace PocketBump
             }
         }
 
+        // 兼容旧测试/场景的立即生成入口，数量和初始排布仍遵守统一规则。
         public List<Rigidbody2D> SpawnMarbles(int count)
         {
             ClearMarbles();
@@ -252,6 +259,7 @@ namespace PocketBump
             return bodies;
         }
 
+        // 只补足缺少的对象；多余对象由 ApplyViews 隐藏，避免回合切换产生频繁 GC。
         public void EnsureMarblePool(int count)
         {
             if (MarbleRoot == null) return;
@@ -263,6 +271,7 @@ namespace PocketBump
             }
         }
 
+        // Rigidbody 不参与权威模拟，保留它只为旧组件 API 和场景引用兼容。
         public Rigidbody2D CreateMarble(Vector2 pos)
         {
             var go = new GameObject($"Marble_{MarbleRoot.childCount + 1:00}");
@@ -296,6 +305,7 @@ namespace PocketBump
             return ArenaLayout.MarbleCenter + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * dist;
         }
 
+        // 防御性检查生成点互不重叠，否则开局求解会平白注入碰撞能量。
         public static void VerifyMarbles(List<Rigidbody2D> marbles, float radius)
         {
             for (int i = 0; i < marbles.Count; i++)

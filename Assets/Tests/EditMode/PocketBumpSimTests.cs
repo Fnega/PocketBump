@@ -2,10 +2,13 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
 
+// 直接驱动 MatchSim 与 RollbackSession，验证确定性、碰撞规则、回滚和协议编码。
+// 绕过场景与帧率后，失败可以精确归因到权威模拟或网络会话逻辑。
 namespace PocketBump.Tests
 {
     public sealed class PocketBumpSimTests
     {
+        // 统一创建已进入倒计时的状态，避免每个测试重复配置比赛初态。
         static MatchSimState Started(int marbles = 1)
         {
             var state = MatchSim.Create(new MatchSettings { marbleCount = marbles });
@@ -13,6 +16,7 @@ namespace PocketBump.Tests
             return state;
         }
 
+        // 精确推进 180 Tick 到 Live，测试同时约束三秒倒计时的 Tick 语义。
         static void StepLive(MatchSimState state)
         {
             PlayerInput n = PlayerInput.Neutral;
@@ -22,6 +26,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 同初态与同输入带必须产生同校验和，这是回滚成立的首要前提。
         public void SameInputTapeProducesEqualChecksums()
         {
             var a = Started(3);
@@ -41,6 +46,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 只有篮筐 well 能收集，角色身体重叠仍按普通碰撞处理。
         public void BasketScoopsAndBodyDoesNot()
         {
             var state = Started();
@@ -57,6 +63,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 空篮筐可转移持有权，而被携带弹珠不应触发球门得分。
         public void ScoopStealsAndCarriedMarbleDoesNotScore()
         {
             var state = Started();
@@ -77,6 +84,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 回归曾出现的同 Tick 抢回 Bug，确保座位 0/1 的抢夺规则对称。
         public void PlayerOneStealsFromPlayerTwoThroughStepWithoutStealBack()
         {
             var state = Started();
@@ -93,6 +101,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 锁定玩法调参：满力射击产生足够反冲，侧面 dunk 口保持设计尺寸。
         public void FullPowerShotEastRecoilsWestAndDunkOpeningIsTripled()
         {
             Assert.That(ArenaLayout.DunkPocketHeight, Is.EqualTo(6.45f).Within(0.001f));
@@ -115,16 +124,51 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 南北门都是各自玩家防守的门；自由弹珠入门后必须由门主人的对手得分。
+        public void MarbleGoalsAwardOpponentOfDefendedPocket()
+        {
+            Vector2 northGoal = new Vector2(0f, ArenaLayout.HalfHeight + ArenaLayout.Wall + 0.55f);
+            var north = Started();
+            StepLive(north);
+            MatchSim.DebugSetMarble(north, 0, northGoal, Vector2.zero);
+            SimEvents northEvent = MatchSim.Step(north, PlayerInput.Neutral, PlayerInput.Neutral);
+
+            Assert.That(north.ScoreP1, Is.EqualTo(0));
+            Assert.That(north.ScoreP2, Is.EqualTo(1));
+            Assert.That(north.Phase, Is.EqualTo(MatchState.Scored));
+            Assert.That(northEvent.Scorer, Is.EqualTo(1));
+            Assert.That(northEvent.ScoreReason, Is.EqualTo("P2 SCORES - P1 POCKET"));
+            Assert.That(northEvent.ScoreAt, Is.EqualTo(northGoal));
+
+            Vector2 southGoal = new Vector2(0f, -ArenaLayout.HalfHeight - ArenaLayout.Wall - 0.55f);
+            var south = Started();
+            StepLive(south);
+            MatchSim.DebugSetMarble(south, 0, southGoal, Vector2.zero);
+            SimEvents southEvent = MatchSim.Step(south, PlayerInput.Neutral, PlayerInput.Neutral);
+
+            Assert.That(south.ScoreP1, Is.EqualTo(1));
+            Assert.That(south.ScoreP2, Is.EqualTo(0));
+            Assert.That(south.Phase, Is.EqualTo(MatchState.Scored));
+            Assert.That(southEvent.Scorer, Is.EqualTo(0));
+            Assert.That(southEvent.ScoreReason, Is.EqualTo("P1 SCORES - P2 POCKET"));
+            Assert.That(southEvent.ScoreAt, Is.EqualTo(southGoal));
+        }
+
+        [Test]
+        // 同 Tick 多事件只计一次，且玩家掉落优先于弹珠进球；同时覆盖发射状态迁移。
         public void SimultaneousDunkBeatsMarbleAndChargeRecoilFires()
         {
             var state = Started();
             StepLive(state);
             MatchSim.DebugPlacePlayer(state, 0, new Vector2(ArenaLayout.HalfWidth + ArenaLayout.Wall + 0.55f, 0f), Vector2.right);
             MatchSim.DebugSetMarble(state, 0, new Vector2(0f, -ArenaLayout.HalfHeight - ArenaLayout.Wall - 0.55f), Vector2.zero);
-            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            SimEvents scoreEvent = MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
             Assert.That(state.ScoreP2, Is.EqualTo(1));
             Assert.That(state.ScoreP1, Is.EqualTo(0));
             Assert.That(state.Phase, Is.EqualTo(MatchState.Scored));
+            Assert.That(scoreEvent.Scorer, Is.EqualTo(1));
+            Assert.That(scoreEvent.ScoreReason, Is.EqualTo("PLAYER 1 DUNKED"));
+            Assert.That(scoreEvent.ScoreAt, Is.EqualTo(state.Players[0].Position));
 
             var shot = Started();
             StepLive(shot);
@@ -141,6 +185,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 覆盖弹珠自然停下、危险击退冷却和固定 180 Tick 开球流程。
         public void MarbleCoastsDangerousKnockbackHasCooldownAndKickoffIs180Ticks()
         {
             var state = Started();
@@ -182,6 +227,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 迟到真实输入回滚后的最终状态必须等于“从一开始就知道输入”的基线；过旧缺口应中止。
         public void RollbackLateRemoteMatchesBaselineAndHoleAborts()
         {
             const int frames = 70;
@@ -249,6 +295,7 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 握手必须拒绝规则不一致，并让通过的 Joiner 获得约定的第二座位。
         public void HandshakeRejectsSettingsMismatchAndJoinAckAssignsSeatTwo()
         {
             Assert.That(
@@ -263,6 +310,7 @@ namespace PocketBump.Tests
             Assert.That(ack[offset + 1], Is.EqualTo(1));
         }
 
+        // 测试用可控网络：按指定延迟把一端输入交付给另一端，便于稳定制造预测与回滚。
         static void Deliver(
             RollbackSession session,
             List<(int arrive, int tick, PlayerInput input)> pending,

@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 弹珠场景对象的表现/兼容组件。
+// 权威状态来自 MarbleSim，本组件只把模拟结果映射到场景和只读状态。
 namespace PocketBump
 {
     [RequireComponent(typeof(Rigidbody2D))]
@@ -19,6 +21,7 @@ namespace PocketBump
             _body = GetComponent<Rigidbody2D>();
         }
 
+        // 从权威 MarbleSim 镜像只读状态；不使用 Rigidbody.velocity 推导下一 Tick。
         public void ApplySim(MarbleSim sim, PlayerMotor carrier)
         {
             Speed = sim.Velocity.magnitude;
@@ -32,6 +35,7 @@ namespace PocketBump
             }
         }
 
+        // 兼容入口只调整层级/显示，正式 Carrier 关系仍由 MatchSim 建立。
         public void AttachTo(PlayerMotor carrier, Transform well)
         {
             Carrier = carrier;
@@ -58,6 +62,7 @@ namespace PocketBump
             Carrier = null;
         }
 
+        // 低速接触保持可控盘带，高速弹珠才追加击退，形成速度的风险收益。
         public static float CalculateAdditionalImpulse(float impactSpeed)
         {
             if (impactSpeed < ArenaLayout.MarbleMildImpactSpeed)

@@ -6,6 +6,8 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
+// 编辑器菜单工具：把可运行时生成的主菜单和竞技场烘焙为正式 Scene/资源。
+// 烘焙后仍使用相同控制器，便于版本管理，也避免手工摆放与代码参数失配。
 namespace PocketBump.Editor
 {
     public static class PocketBumpSceneBaker
@@ -15,6 +17,7 @@ namespace PocketBump.Editor
         const string ArenaPath = "Assets/Scenes/Arena.unity";
 
         [MenuItem("Tools/Pocket Bump/Bake Authored Scenes")]
+        // 一次性刷新依赖资源并重建两个正式场景，确保提交的 Scene 与当前代码生成逻辑一致。
         public static void BakeAuthoredScenes()
         {
             EnsureFolders();
@@ -41,6 +44,18 @@ namespace PocketBump.Editor
             Debug.Log("Pocket Bump authored scenes baked successfully.");
         }
 
+        [MenuItem("Tools/Pocket Bump/Bake Main Menu Only")]
+        public static void BakeMainMenuOnly()
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            EnsureFolders();
+            EnsureTmpResources();
+            UiFactory.ReloadAssets();
+            BakeMainMenu();
+            AssetDatabase.SaveAssets();
+        }
+
+        // 创建最小根对象后让 MainMenuController 生成 UI，再保存为可直接运行的场景。
         static void BakeMainMenu()
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -57,6 +72,7 @@ namespace PocketBump.Editor
             EditorSceneManager.SaveScene(scene, MainMenuPath);
         }
 
+        // 使用运行时工厂搭建场地/玩家/HUD，随后写入序列化引用，避免手工拖拽漏项。
         static void BakeArena()
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -117,6 +133,7 @@ namespace PocketBump.Editor
             MatchDirector.EnsureMatchLight();
         }
 
+        // AssetDatabase 创建资源前要求父目录存在，逐级保证可让首次克隆项目也能烘焙。
         static void EnsureFolders()
         {
             EnsureFolder("Assets", "Resources");
@@ -131,6 +148,7 @@ namespace PocketBump.Editor
                 AssetDatabase.CreateFolder(parent, child);
         }
 
+        // TMP 默认资源可能尚未导入；烘焙前检查并尝试导入，避免保存缺字体的 UI。
         static void EnsureTmpResources()
         {
             if (Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF") != null)
@@ -152,6 +170,7 @@ namespace PocketBump.Editor
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
         }
 
+        // 只在资源缺失时生成基础纹理，避免每次烘焙覆盖已存在的 meta/GUID 引用。
         static void CreateSpriteAsset(string name, bool circle)
         {
             const int size = 64;
@@ -184,6 +203,7 @@ namespace PocketBump.Editor
             importer.SaveAndReimport();
         }
 
+        // 预建共享材质供 Resources 加载，使运行时构建与烘焙场景使用相同着色配置。
         static void CreateMaterials()
         {
             string materialPath = $"{ResourcesFolder}/NeonSprite.mat";

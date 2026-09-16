@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 游戏的权威规则层：以固定 60 Hz 推进移动、碰撞、篮筐、计分和比赛状态机。
+// 此层不读取实时输入、不驱动场景对象，也不调用 Physics2D，因此可以复制并回滚重演。
 namespace PocketBump
 {
     public static class MatchSim
@@ -34,6 +36,8 @@ namespace PocketBump
         static readonly Aabb EastWell;
         static readonly Aabb WestWell;
 
+        // 只构建一次静态碰撞区域。几何全部从 ArenaLayout 推导，固定构建和遍历顺序
+        // 也是保证两端执行相同碰撞流程的一部分。
         static MatchSim()
         {
             float w = ArenaLayout.HalfWidth;
@@ -66,6 +70,7 @@ namespace PocketBump
 
         public static MatchSimState Create(MatchSettings settings)
         {
+            // 这里只创建初始数据而不自动开赛，LAN 可以先完成握手，再让双方同时从 Tick 0 起步。
             settings = settings ?? new MatchSettings();
             settings.Clamp();
             var state = new MatchSimState
@@ -81,6 +86,7 @@ namespace PocketBump
 
         public static void StartMatch(MatchSimState state)
         {
+            // 只允许从未开始或已结束状态重开，避免中途调用破坏当前回合的可重演性。
             if (state.Phase != MatchState.Pregame && state.Phase != MatchState.MatchOver)
                 return;
             state.ScoreP1 = 0;
@@ -90,12 +96,15 @@ namespace PocketBump
 
         public static SimEvents Step(MatchSimState state, PlayerInput input0, PlayerInput input1)
         {
+            // 一个 Tick 的顺序本身就是规则：移动 → 碰撞 → 焊接持球 → 抢夺 → 计分。
+            // 固定顺序后，本地、远端和回滚重演才能对相同输入得到相同状态。
             var events = new SimEvents { Scorer = -1, Winner = -1 };
             if (state.Phase == MatchState.MatchOver || state.Phase == MatchState.Pregame)
                 return events;
 
             if (state.Phase == MatchState.Scored)
             {
+                // 得分冻结期间停止物理，让玩家看清结果；到期后再判断终局或重新开球。
                 state.PhaseTicks--;
                 if (state.PhaseTicks <= 0)
                 {
@@ -135,6 +144,7 @@ namespace PocketBump
 
             if (state.Phase == MatchState.Kickoff)
             {
+                // 倒计时期间玩家可在各自半场移动，但门关闭且没有弹珠；结束时才开门并生成弹珠。
                 state.PhaseTicks--;
                 if (state.PhaseTicks <= 0)
                 {
@@ -152,6 +162,7 @@ namespace PocketBump
 
         public static Vector2 ClusterOffset(int index, int count)
         {
+            // 黄金角螺旋让 1~8 颗弹珠围绕中心均匀散开，避免规则数量变化时重叠。
             if (count <= 1 || index == 0) return ArenaLayout.MarbleCenter;
             float spacing = ArenaLayout.MarbleRadius * 2.15f;
             float angle = index * 2.399963f;
@@ -272,6 +283,7 @@ namespace PocketBump
 
         static void TickCooldowns(MatchSimState state)
         {
+            // 冷却由固定 Tick 推进而不读取 Time.time，否则恢复旧状态后重演会产生不同结果。
             for (int i = 0; i < 2; i++)
             {
                 PlayerSim p = state.Players[i];
@@ -292,6 +304,7 @@ namespace PocketBump
         static void StepPlayer(MatchSimState state, int index, PlayerInput input, ref SimEvents events)
         {
             PlayerSim p = state.Players[index];
+            // 力量选择阶段角色必须站定并保持锁定方向；方向选择阶段仍允许边移动边瞄准。
             if (p.Charge != ChargePhase.Power)
                 p.Facing = PlayerChargeMath.StepFacing(p.Facing, input.Move, TickDt);
 
@@ -332,6 +345,7 @@ namespace PocketBump
 
         static void HandleShoot(ref PlayerSim p, int index, PlayerInput input, MatchSimState state, ref SimEvents events)
         {
+            // ShootPressed 是 Tick 边沿：第一次选方向、第二次锁方向、第三次按当前力度发射。
             if (!input.ShootPressed) return;
             if (p.Charge == ChargePhase.None)
             {
@@ -384,6 +398,7 @@ namespace PocketBump
             p.Charge = ChargePhase.None;
             p.ChargeTime = 0f;
             Vector2 recoil = PlayerChargeMath.RecoilImpulse(dir, power);
+            // impulse / mass 得到速度变化，让 PlayerMass 始终作为统一的惯性参数。
             p.Velocity += recoil / ArenaLayout.PlayerMass;
             p.ImpactCoast = ArenaLayout.ImpactCoastSeconds;
             if (index == 0)
@@ -400,6 +415,7 @@ namespace PocketBump
 
         static void StepMarbles(MatchSimState state)
         {
+            // 只有自由弹珠参与阻力和限速；被持有弹珠会由 WeldCarried 直接跟随篮筐。
             for (int i = 0; i < state.Marbles.Length; i++)
             {
                 MarbleSim m = state.Marbles[i];
@@ -415,6 +431,7 @@ namespace PocketBump
 
         static void IntegrateAndCollide(MatchSimState state, ref SimEvents events)
         {
+            // 玩家速度较稳定，可直接积分；高速小球则可能在一个 Tick 内跨过薄墙。
             for (int i = 0; i < 2; i++)
             {
                 PlayerSim p = state.Players[i];
@@ -427,6 +444,7 @@ namespace PocketBump
                 MarbleSim m = state.Marbles[i];
                 if (!m.Active || m.Carrier >= 0) continue;
                 float speed = m.Velocity.magnitude;
+                // 按本 Tick 位移相对半径的比例自适应细分，降低离散检测造成的穿透。
                 int sub = Mathf.Max(1, Mathf.CeilToInt(speed * TickDt / (ArenaLayout.MarbleRadius * 0.4f)));
                 float sdt = TickDt / sub;
                 for (int s = 0; s < sub; s++)
@@ -440,6 +458,7 @@ namespace PocketBump
 
             for (int iter = 0; iter < 6; iter++)
             {
+                // 顺序冲量需要多轮迭代才能逐渐消除多物体接触穿透；固定 6 轮兼顾稳定与成本。
                 for (int i = 0; i < 2; i++)
                     ResolveStaticsForPlayer(state, i);
                 for (int i = 0; i < state.Marbles.Length; i++)
@@ -599,6 +618,8 @@ namespace PocketBump
 
         static void ProcessBaskets(MatchSimState state, ref SimEvents events)
         {
+            // 每颗弹珠每 Tick 最多被一个篮筐认领。成功后立即停止尝试另一名玩家，
+            // 防止刚发生的抢夺因旧位置仍重叠而在同一 Tick 被原持有者抢回。
             for (int marble = 0; marble < state.Marbles.Length; marble++)
             {
                 if (!state.Marbles[marble].Active) continue;
@@ -651,6 +672,7 @@ namespace PocketBump
 
         static void WeldCarried(MatchSimState state)
         {
+            // 持球不使用物理约束，而是直接焊接到篮筐 well；这样结果稳定、状态也容易回滚。
             for (int p = 0; p < 2; p++)
             {
                 int carried = state.Players[p].Carried;
@@ -665,41 +687,58 @@ namespace PocketBump
 
         static void TryScore(MatchSimState state, ref SimEvents events)
         {
+            // 同 Tick 多事件必须有固定优先级，否则遍历顺序变化可能令两端比分不同。
+            // 当前顺序：P1 掉落、P2 掉落、北侧弹珠、南侧弹珠，命中首项后结束回合。
             bool p1Dunk = CircleAabbOverlap(state.Players[0].Position, ArenaLayout.PlayerRadius, EastWell) ||
                           CircleAabbOverlap(state.Players[0].Position, ArenaLayout.PlayerRadius, WestWell);
             bool p2Dunk = CircleAabbOverlap(state.Players[1].Position, ArenaLayout.PlayerRadius, EastWell) ||
                           CircleAabbOverlap(state.Players[1].Position, ArenaLayout.PlayerRadius, WestWell);
             bool north = false;
             bool south = false;
+            Vector2 northAt = default;
+            Vector2 southAt = default;
             for (int i = 0; i < state.Marbles.Length; i++)
             {
                 MarbleSim m = state.Marbles[i];
                 if (!m.Active || m.Carrier >= 0) continue;
-                if (CircleAabbOverlap(m.Position, ArenaLayout.MarbleRadius, NorthWell)) north = true;
-                if (CircleAabbOverlap(m.Position, ArenaLayout.MarbleRadius, SouthWell)) south = true;
+                if (!north && CircleAabbOverlap(m.Position, ArenaLayout.MarbleRadius, NorthWell))
+                {
+                    north = true;
+                    northAt = m.Position;
+                }
+                if (!south && CircleAabbOverlap(m.Position, ArenaLayout.MarbleRadius, SouthWell))
+                {
+                    south = true;
+                    southAt = m.Position;
+                }
             }
 
             int scorer = -1;
             string reason = "";
+            Vector2 scoreAt = default;
             if (p1Dunk)
             {
                 scorer = 1;
                 reason = "PLAYER 1 DUNKED";
+                scoreAt = state.Players[0].Position;
             }
             else if (p2Dunk)
             {
                 scorer = 0;
                 reason = "PLAYER 2 DUNKED";
+                scoreAt = state.Players[1].Position;
             }
             else if (north)
             {
-                scorer = 0;
-                reason = "P1 POCKET";
+                scorer = OpponentOf(0);
+                reason = "P2 SCORES - P1 POCKET";
+                scoreAt = northAt;
             }
             else if (south)
             {
-                scorer = 1;
-                reason = "P2 POCKET";
+                scorer = OpponentOf(1);
+                reason = "P1 SCORES - P2 POCKET";
+                scoreAt = southAt;
             }
 
             if (scorer < 0) return;
@@ -712,6 +751,12 @@ namespace PocketBump
             events.Scored = true;
             events.Scorer = scorer;
             events.ScoreReason = reason;
+            events.ScoreAt = scoreAt;
+        }
+
+        static int OpponentOf(int player)
+        {
+            return player == 0 ? 1 : 0;
         }
 
         static Vector2 BasketOrigin(PlayerSim p)
@@ -741,6 +786,7 @@ namespace PocketBump
 
         static Vector2 WorldToLocal(Vector2 world, Vector2 origin, Vector2 right, Vector2 forward)
         {
+            // 投影到篮筐自身坐标系后，可把旋转 OBB 当成轴对齐矩形复用检测代码。
             Vector2 d = world - origin;
             return new Vector2(Vector2.Dot(d, right), Vector2.Dot(d, forward));
         }
@@ -777,6 +823,8 @@ namespace PocketBump
 
         static bool ResolveCircleAabb(ref Vector2 pos, float radius, Aabb box, out Vector2 normal)
         {
+            // 找矩形上离圆心最近的点，再沿最短分离方向推出圆；圆心落在矩形内部时
+            // 最近点等于圆心，因此下方分支改为选择距离最近的边。
             Vector2 closest = ClosestPoint(box, pos);
             Vector2 delta = pos - closest;
             if (delta.sqrMagnitude > 0.0000001f)
@@ -818,6 +866,7 @@ namespace PocketBump
             float mb,
             float bounciness)
         {
+            // 先按逆质量比例分离位置，再只对相向速度施加冲量，避免远离中的物体被二次反弹。
             Vector2 d = pb - pa;
             float minDist = ra + rb;
             float distSq = d.sqrMagnitude;
@@ -853,6 +902,7 @@ namespace PocketBump
             Vector2 localCenter,
             Vector2 size)
         {
+            // 在 OBB 局部坐标中复用 Circle-AABB 求解，再把位置和速度旋回世界空间。
             Vector2 worldCenter = origin + right * localCenter.x + forward * localCenter.y;
             Vector2 local = WorldToLocal(pos, worldCenter, right, forward);
             var box = new Aabb(Vector2.zero, size);

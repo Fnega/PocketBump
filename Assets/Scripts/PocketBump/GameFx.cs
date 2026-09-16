@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 生成只属于表现层的短生命周期脉冲特效。
+// 联机特效记录来源 Tick，以便回滚时移除已被修正历史中的“幽灵特效”。
 namespace PocketBump
 {
     public sealed class GameFx : MonoBehaviour
@@ -17,6 +19,7 @@ namespace PocketBump
             Pulse(position, color, startScale, endScale, duration, -1);
         }
 
+        // tick=-1 表示普通本地表现；联机事件传入来源 Tick，供回滚定向清理。
         public static void Pulse(Vector2 position, Color color, float startScale, float endScale, float duration, int tick)
         {
             if (!Application.isPlaying) return;
@@ -46,6 +49,7 @@ namespace PocketBump
             }
         }
 
+        // 特效用渲染时间平滑播放，不进入 MatchSim，因此不会影响任何权威结果。
         void Update()
         {
             _age += Time.deltaTime;

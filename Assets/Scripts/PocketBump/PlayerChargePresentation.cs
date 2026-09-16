@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// 将 ChargePhase 转换为玩家身旁的方向/力度指示条。
+// 指示条只解释模拟状态，不参与锁定方向或决定发射力度。
 namespace PocketBump
 {
     public sealed class PlayerChargePresentation : MonoBehaviour
@@ -53,6 +55,7 @@ namespace PocketBump
             return go.transform;
         }
 
+        // 在模拟和玩家位置应用后刷新指示器，避免针条落后一帧。
         void LateUpdate()
         {
             if (_motor == null) return;
@@ -121,6 +124,7 @@ namespace PocketBump
             bar.localScale = new Vector3(length, width, ArenaLayout.NeedleThickness);
         }
 
+        // 无蓄力时隐藏而非销毁，避免频繁创建网格和材质实例。
         void Hide()
         {
             if (_direction != null) _direction.gameObject.SetActive(false);

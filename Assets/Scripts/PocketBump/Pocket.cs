@@ -1,6 +1,8 @@
 using System;
 using UnityEngine;
 
+// 旧 Physics2D 场景触发器的口袋类型标记与兼容入口。
+// 正式得分由 MatchSim 的确定性区域检测决定，组件不直接修改比赛状态。
 namespace PocketBump
 {
     public enum PocketKind
