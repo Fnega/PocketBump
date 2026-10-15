@@ -8,6 +8,12 @@ namespace PocketBump
     {
         readonly bool[] _shootLatched = new bool[2];
 
+        public void Clear()
+        {
+            _shootLatched[0] = false;
+            _shootLatched[1] = false;
+        }
+
         public void LatchUpdate(bool netplayLocalSeatOnly, int localSeat)
         {
             // GetKeyDown 只在渲染帧成立，先 OR 到锁存位；即使一帧内出现多个 FixedUpdate 也只消费一次。

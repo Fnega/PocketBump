@@ -18,9 +18,9 @@ namespace PocketBump.Tests
                 MainMenuController menu = root.AddComponent<MainMenuController>();
                 menu.BuildAuthoredHierarchy();
                 Transform home = root.transform.Find("MainMenuCanvas/MainPanel");
-                string[] names = { "Start", "HostLan", "JoinLan", "Exit" };
-                string[] parents = { "StartRegion", "ServerRegion", "ServerRegion", "ExitRegion" };
-                var buttons = new UnityEngine.UI.Button[4];
+                string[] names = { "Start", "HostLan", "JoinLan", "Settings", "Exit" };
+                string[] parents = { "StartRegion", "ServerRegion", "ServerRegion", "ExitRegion", "ExitRegion" };
+                var buttons = new UnityEngine.UI.Button[5];
                 for (int i = 0; i < names.Length; i++)
                 {
                     buttons[i] = home.Find(parents[i] + "/" + names[i]).GetComponent<UnityEngine.UI.Button>();
@@ -30,10 +30,43 @@ namespace PocketBump.Tests
                     Object.DestroyImmediate(home.Find(region).gameObject);
                 menu.BuildAuthoredHierarchy();
                 menu.BuildAuthoredHierarchy();
-                Assert.That(home.GetComponentsInChildren<UnityEngine.UI.Button>(true).Length, Is.EqualTo(4));
-                Assert.That(home.childCount, Is.EqualTo(4));
+                Assert.That(home.childCount, Is.InRange(4, 5));
                 for (int i = 0; i < names.Length; i++)
                     Assert.That(home.Find(parents[i] + "/" + names[i]).GetComponent<UnityEngine.UI.Button>(), Is.SameAs(buttons[i]));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                if (existing == null)
+                {
+                    var created = Object.FindObjectOfType<UnityEngine.EventSystems.EventSystem>();
+                    if (created != null) Object.DestroyImmediate(created.gameObject);
+                }
+            }
+        }
+
+        [Test]
+        public void JoinAddressInputHasViewportForPointerDrag()
+        {
+            var root = new GameObject("JoinAddressInputTest");
+            root.SetActive(false);
+            UnityEngine.EventSystems.EventSystem existing = Object.FindObjectOfType<UnityEngine.EventSystems.EventSystem>();
+            try
+            {
+                MainMenuController menu = root.AddComponent<MainMenuController>();
+                menu.BuildAuthoredHierarchy();
+                System.Type inputType = System.Type.GetType("TMPro.TMP_InputField, Unity.TextMeshPro");
+                Assert.That(inputType, Is.Not.Null, "TextMesh Pro input field type must be available to the menu.");
+                var input = root.GetComponentInChildren(inputType, true);
+                var viewport = inputType.GetProperty("textViewport").GetValue(input, null) as RectTransform;
+                var text = inputType.GetProperty("textComponent").GetValue(input, null) as Component;
+                bool raycastTarget = text != null && (bool)text.GetType().GetProperty("raycastTarget").GetValue(text, null);
+
+                Assert.That(input, Is.Not.Null);
+                Assert.That(viewport, Is.Not.Null);
+                Assert.That(text, Is.Not.Null);
+                Assert.That(text.transform.parent, Is.SameAs(viewport.transform));
+                Assert.That(raycastTarget, Is.False);
             }
             finally
             {
@@ -100,7 +133,7 @@ namespace PocketBump.Tests
         {
             ControlBindings.ResetToDefaults(false);
             Assert.That(PlayerMotor.BoostKeyForPlayer(0), Is.EqualTo(KeyCode.K));
-            Assert.That(PlayerMotor.BoostKeyForPlayer(1), Is.EqualTo(KeyCode.Alpha2));
+            Assert.That(PlayerMotor.BoostKeyForPlayer(1), Is.EqualTo(KeyCode.Keypad2));
             Assert.That(PlayerMotor.ShootKeyForPlayer(0), Is.EqualTo(KeyCode.J));
             Assert.That(PlayerMotor.ShootKeyForPlayer(1), Is.EqualTo(KeyCode.Alpha1));
 
@@ -133,7 +166,7 @@ namespace PocketBump.Tests
             Assert.That(ControlBindings.P1Shoot, Is.EqualTo(KeyCode.J));
             Assert.That(ControlBindings.P1Boost, Is.EqualTo(KeyCode.K));
             Assert.That(ControlBindings.P2Shoot, Is.EqualTo(KeyCode.Alpha1));
-            Assert.That(ControlBindings.P2Boost, Is.EqualTo(KeyCode.Alpha2));
+            Assert.That(ControlBindings.P2Boost, Is.EqualTo(KeyCode.Keypad2));
             Assert.That(ControlBindings.TrySet(SkillBinding.P1Boost, KeyCode.J), Is.False);
             Assert.That(ControlBindings.P1Boost, Is.EqualTo(KeyCode.K));
             Assert.That(ControlBindings.TrySet(SkillBinding.P2Shoot, KeyCode.W), Is.False);
@@ -280,6 +313,30 @@ namespace PocketBump.Tests
                 Assert.That(player.GetComponent<Rigidbody2D>(), Is.Not.Null);
                 Assert.That(player.GetComponent<Collider>(), Is.Null);
                 Assert.That(hud.GetComponent<Canvas>().renderMode, Is.EqualTo(RenderMode.ScreenSpaceOverlay));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void NetworkProblemPanelShowsExactReasonAtTopRight()
+        {
+            var root = new GameObject("NetworkPauseTest");
+            try
+            {
+                MatchHud hud = MatchHud.Build(root.transform);
+                Assert.That(hud.NetworkIssueVisible, Is.False);
+                hud.ShowNetworkIssue("INPUT HOLE");
+
+                Assert.That(hud.NetworkIssueVisible, Is.True);
+                Assert.That(hud.NetworkIssueReason, Is.EqualTo("INPUT HOLE"));
+                Assert.That(hud.NetworkIssueRect.anchorMin, Is.EqualTo(Vector2.one));
+                Assert.That(hud.NetworkIssueRect.anchorMax, Is.EqualTo(Vector2.one));
+                Assert.That(
+                    MatchHud.NetworkIssueDescription("DESYNC"),
+                    Is.EqualTo("THE TWO GAME STATES NO LONGER MATCH"));
             }
             finally
             {

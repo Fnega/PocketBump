@@ -3,7 +3,8 @@
   "rootNamespace": "PocketBump.Tests",
   "references": [
     "PocketBump.Runtime",
-    "Unity.ugui"
+        "Unity.ugui",
+        "Unity.TextMeshPro"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

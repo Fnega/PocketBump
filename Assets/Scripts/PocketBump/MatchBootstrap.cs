@@ -8,8 +8,13 @@ namespace PocketBump
     {
         void Awake()
         {
+            if (FindObjectOfType<DashMatchDirector>() != null)
+            {
+                foreach (MatchDirector legacy in FindObjectsOfType<MatchDirector>()) legacy.enabled = false;
+                return;
+            }
             if (FindObjectOfType<MatchDirector>() != null) return;
-            MatchDirector.Build(GameSession.Ensure().CopySettings(), true);
+            DashMatchDirector.Build(GameSession.Ensure().CopySettings(), true);
         }
     }
 }

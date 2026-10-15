@@ -16,6 +16,7 @@ namespace PocketBump
         public Transform MarbleRoot;
         public PhysicsMaterial2D BounceMat;
         bool _gateOpen;
+        GameObject _gateArt;
 
         // 动态构建路径供测试和缺少烘焙场景时使用；生成物仍读取统一布局参数。
         public static Arena Build(Transform parent)
@@ -32,6 +33,7 @@ namespace PocketBump
             arena.WestPocket = arena.BuildDunkPocket(root.transform, "WestPocket", false);
             arena.MarbleRoot = new GameObject("Marbles").transform;
             arena.MarbleRoot.SetParent(root.transform, false);
+            arena.ApplyArtTheme();
             arena.SetGateOpen(false);
             return arena;
         }
@@ -208,9 +210,73 @@ namespace PocketBump
         {
             if (GateCollider != null) GateCollider.enabled = !open;
             if (GateRenderer != null) GateRenderer.enabled = !open;
+            if (_gateArt != null) _gateArt.SetActive(!open);
             if (open && !_gateOpen)
-                GameFx.Pulse(Vector2.zero, VisualPalette.Gate, 0.3f, 3f, 0.35f);
+                GameFx.Pulse(Vector2.zero, VisualPalette.Gate, 0.3f, 3f, 0.35f, -1, GameFxKind.Gate);
             _gateOpen = open;
+        }
+
+        public void ApplyArtTheme()
+        {
+            Quaternion modelRotation = Quaternion.Euler(90f, 0f, 0f);
+            for (int i = 0; i < transform.childCount; i++)
+            {
+                Transform child = transform.GetChild(i);
+                if (child.name.StartsWith("Wall"))
+                    ArtCatalog.AttachModel(child.gameObject, "Models/Space/template-wall", VisualPalette.Wall,
+                        modelRotation);
+            }
+
+            Transform floor = transform.Find("Floor");
+            if (floor != null)
+            {
+                SpriteRenderer pattern = ArtCatalog.AddWorldSprite(
+                    transform,
+                    "KenneyFloorPattern",
+                    "Patterns/arena_octagons",
+                    VisualPalette.WithAlpha(VisualPalette.PlayerOne, 0.13f),
+                    new Vector3(0f, 0f, -0.02f),
+                    Vector3.one,
+                    -5);
+                pattern.drawMode = SpriteDrawMode.Tiled;
+                pattern.size = new Vector2(ArenaLayout.HalfWidth * 2f, ArenaLayout.HalfHeight * 2f);
+            }
+
+            Transform gate = transform.Find("CenterGate");
+            if (gate != null)
+            {
+                _gateArt = ArtCatalog.AttachModel(
+                    gate.gameObject,
+                    "Models/Space/gate-lasers",
+                    VisualPalette.Gate,
+                    modelRotation);
+                if (_gateArt != null) _gateArt.SetActive(!_gateOpen);
+            }
+
+            ApplyPocketArt(NorthPocket, VisualPalette.PlayerOne, false);
+            ApplyPocketArt(SouthPocket, VisualPalette.PlayerTwo, false);
+            ApplyPocketArt(EastPocket, VisualPalette.Danger, true);
+            ApplyPocketArt(WestPocket, VisualPalette.Danger, true);
+        }
+
+        static void ApplyPocketArt(Pocket pocket, Color color, bool sideways)
+        {
+            if (pocket == null || pocket.transform.parent == null) return;
+            Transform root = pocket.transform.parent;
+            Transform existing = root.Find("KenneyPocketArt");
+            GameObject host = existing != null ? existing.gameObject : new GameObject("KenneyPocketArt");
+            if (existing == null) host.transform.SetParent(root, false);
+            host.transform.localPosition = pocket.transform.localPosition;
+            host.transform.localRotation = Quaternion.identity;
+            host.transform.localScale = sideways
+                ? new Vector3(1.5f, ArenaLayout.DunkPocketHeight, ArenaLayout.WallHeight)
+                : new Vector3(ArenaLayout.MarblePocketWidth, 1.5f, ArenaLayout.WallHeight);
+            ArtCatalog.AttachModel(
+                host,
+                sideways ? "Models/Space/corridor-end" : "Models/Marble/funnel",
+                color,
+                Quaternion.Euler(90f, sideways ? 90f : 0f, 0f),
+                false);
         }
 
         // 清理旧兼容对象；正式回合通常使用对象池与 SetActive，而不会重复创建/销毁。

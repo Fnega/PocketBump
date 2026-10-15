@@ -101,6 +101,202 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 两个座位使用同一篮筐接触规则，不依赖固定遍历优先级。
+        public void VisibleBasketContactStealsSymmetrically()
+        {
+            MatchSimState fromP1 = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left);
+            SimEvents p2Steal = MatchSim.Step(fromP1, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(fromP1.Players[1].Carried, Is.EqualTo(0));
+            Assert.That(fromP1.Players[0].Carried, Is.EqualTo(-1));
+            Assert.That(p2Steal.Collected1, Is.True);
+
+            MatchSimState fromP2 = LiveWithCarrier(
+                1, new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left,
+                Vector2.zero, Vector2.right);
+            SimEvents p1Steal = MatchSim.Step(fromP2, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(fromP2.Players[0].Carried, Is.EqualTo(0));
+            Assert.That(fromP2.Players[1].Carried, Is.EqualTo(-1));
+            Assert.That(p1Steal.Collected0, Is.True);
+        }
+
+        [Test]
+        // 同一接触周期只能转移一次；持续重叠不能在后续 Tick 抢回或重复发事件。
+        public void SustainedBasketContactTransfersOnceAndKeepsNewCarrier()
+        {
+            MatchSimState state = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left);
+            int collectionEvents = 0;
+            SimEvents first = MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            if (first.Collected0 || first.Collected1) collectionEvents++;
+
+            for (int i = 0; i < 30; i++)
+            {
+                SimEvents next = MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+                if (next.Collected0 || next.Collected1) collectionEvents++;
+                Assert.That(state.Players[1].Carried, Is.EqualTo(0), "Possession changed on sustained-contact tick " + i);
+                Assert.That(state.Marbles[0].StealContactLatched, Is.True);
+            }
+
+            Assert.That(collectionEvents, Is.EqualTo(1));
+        }
+
+        [Test]
+        // 明确分离会结束旧接触周期，重新进入后允许一次方向相反的抢夺。
+        public void SeparationAndReentryAllowsCounterSteal()
+        {
+            MatchSimState state = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left);
+            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.Players[1].Carried, Is.EqualTo(0));
+            Assert.That(state.Marbles[0].StealContactLatched, Is.True);
+
+            MatchSim.DebugPlacePlayer(state, 0, new Vector2(-4f, 0f), Vector2.right);
+            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.Players[1].Carried, Is.EqualTo(0));
+            Assert.That(state.Marbles[0].StealContactLatched, Is.False);
+
+            MatchSim.DebugPlacePlayer(state, 0, Vector2.zero, Vector2.right);
+            SimEvents counter = MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.Players[0].Carried, Is.EqualTo(0));
+            Assert.That(state.Players[1].Carried, Is.EqualTo(-1));
+            Assert.That(counter.Collected0, Is.True);
+        }
+
+        [Test]
+        // 抢夺区域覆盖正面、侧面和擦边可见篮筐接触，但不把身体接触或间隙当成抢夺。
+        public void StealGeometryCoversVisibleContactsWithoutBroadeningFreeCollection()
+        {
+            MatchSimState front = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left);
+            MatchSim.Step(front, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(front.Players[1].Carried, Is.EqualTo(0));
+
+            MatchSimState side = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset, 1.2f), Vector2.down);
+            MatchSim.Step(side, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(side.Players[1].Carried, Is.EqualTo(0));
+
+            MatchSimState glancing = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset * 2f, 0.9f), Vector2.left);
+            MatchSim.Step(glancing, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(glancing.Players[1].Carried, Is.EqualTo(0));
+
+            MatchSimState separated = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset * 2f, 1.2f), Vector2.left);
+            MatchSim.Step(separated, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(separated.Players[0].Carried, Is.EqualTo(0));
+
+            MatchSimState bodyOnly = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.PlayerRadius * 2f, 0f), Vector2.right);
+            MatchSim.Step(bodyOnly, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(bodyOnly.Players[0].Carried, Is.EqualTo(0));
+
+            MatchSimState free = Started();
+            StepLive(free);
+            MatchSim.DebugPlacePlayer(free, 0, Vector2.zero, Vector2.right);
+            MatchSim.DebugSetMarble(free, 0, Vector2.zero, Vector2.zero);
+            Assert.That(MatchSim.DebugCollect(free, 0, 0), Is.False);
+            MatchSim.DebugSetMarble(free, 0, Vector2.right * ArenaLayout.BasketOffset, Vector2.zero);
+            Assert.That(MatchSim.DebugCollect(free, 0, 0), Is.True);
+        }
+
+        [Test]
+        // 接触锁属于可回滚状态，并在发射、调试释放和回合重置时清除。
+        public void StealLatchClonesChecksumsAndClearsAcrossLifecycle()
+        {
+            MatchSimState state = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left);
+            PlayerSim charging = state.Players[0];
+            charging.Charge = ChargePhase.Power;
+            charging.ChargeTime = 0.4f;
+            state.Players[0] = charging;
+            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.Players[0].Charge, Is.EqualTo(ChargePhase.None));
+            Assert.That(state.Marbles[0].StealContactLatched, Is.True);
+
+            MatchSimState clone = state.Clone();
+            Assert.That(clone.Marbles[0].StealContactLatched, Is.True);
+            Assert.That(clone.Checksum(), Is.EqualTo(state.Checksum()));
+            MarbleSim changed = clone.Marbles[0];
+            changed.StealContactLatched = false;
+            clone.Marbles[0] = changed;
+            Assert.That(clone.Checksum(), Is.Not.EqualTo(state.Checksum()));
+
+            Assert.That(MatchSim.DebugShoot(state, 1), Is.True);
+            Assert.That(MatchSim.DebugShoot(state, 1), Is.True);
+            Assert.That(MatchSim.DebugShoot(state, 1), Is.True);
+            Assert.That(state.Marbles[0].StealContactLatched, Is.False);
+
+            MarbleSim stale = state.Marbles[0];
+            stale.StealContactLatched = true;
+            state.Marbles[0] = stale;
+            MatchSim.DebugSetMarble(state, 0, Vector2.zero, Vector2.zero);
+            Assert.That(state.Marbles[0].StealContactLatched, Is.False);
+
+            stale = state.Marbles[0];
+            stale.StealContactLatched = true;
+            state.Marbles[0] = stale;
+            state.Phase = MatchState.Scored;
+            state.PhaseTicks = 1;
+            MatchSim.Step(state, PlayerInput.Neutral, PlayerInput.Neutral);
+            Assert.That(state.Marbles[0].StealContactLatched, Is.False);
+            Assert.That(state.Marbles[0].Active, Is.False);
+        }
+
+        [Test]
+        // 迟到输入触发恢复与重演后，持续接触锁、事件次数和最终校验和必须与基线一致。
+        public void RollbackReplayPreservesSustainedStealContact()
+        {
+            MatchSimState initial = LiveWithCarrier(
+                0, Vector2.zero, Vector2.right,
+                new Vector2(ArenaLayout.BasketOffset * 2f, 0f), Vector2.left);
+            initial.Tick = 0;
+            var baseline = new RollbackSession(initial.Clone(), 0);
+            var replayed = new RollbackSession(initial.Clone(), 0);
+            var corrected = new PlayerInput { BoostHeld = true };
+            baseline.ReceiveRemote(2, corrected);
+
+            int baselineCollections = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                SimEvents events = baseline.Advance(PlayerInput.Neutral);
+                if (events.Collected0 || events.Collected1) baselineCollections++;
+            }
+
+            int replayedCollections = 0;
+            for (int i = 0; i < 5; i++)
+            {
+                SimEvents events = replayed.Advance(PlayerInput.Neutral);
+                if (events.Collected0 || events.Collected1) replayedCollections++;
+            }
+
+            Assert.That(replayed.TryReceiveRemote(2, corrected), Is.True);
+            SimEvents correctedEvents = replayed.Advance(PlayerInput.Neutral);
+            if (correctedEvents.Collected0 || correctedEvents.Collected1) replayedCollections++;
+            Assert.That(replayed.LastRollbackTick, Is.EqualTo(2));
+            for (int i = 6; i < 8; i++)
+            {
+                SimEvents events = replayed.Advance(PlayerInput.Neutral);
+                if (events.Collected0 || events.Collected1) replayedCollections++;
+            }
+
+            Assert.That(replayedCollections, Is.EqualTo(baselineCollections));
+            Assert.That(replayed.State.Players[1].Carried, Is.EqualTo(0));
+            Assert.That(replayed.State.Marbles[0].StealContactLatched, Is.True);
+            Assert.That(replayed.State.Checksum(), Is.EqualTo(baseline.State.Checksum()));
+        }
+
+        [Test]
         // 锁定玩法调参：满力射击产生足够反冲，侧面 dunk 口保持设计尺寸。
         public void FullPowerShotEastRecoilsWestAndDunkOpeningIsTripled()
         {
@@ -295,6 +491,57 @@ namespace PocketBump.Tests
         }
 
         [Test]
+        // 收到校验值时若真实输入尚未连续确认，必须等待回滚完成后再比较修正过的历史。
+        public void LateInputRefreshesHistoricalChecksumBeforeQueuedValidation()
+        {
+            var baseline = new RollbackSession(Started(), 0);
+            var replayed = new RollbackSession(Started(), 0);
+            var corrected = new PlayerInput { Move = Vector2.up, BoostHeld = true };
+            baseline.ReceiveRemote(2, corrected);
+
+            for (int i = 0; i < 3; i++)
+            {
+                baseline.Advance(PlayerInput.Neutral);
+                replayed.Advance(PlayerInput.Neutral);
+            }
+
+            int expectedTickTwo = baseline.ChecksumAt(2);
+            Assert.That(replayed.ChecksumAt(2), Is.Not.EqualTo(expectedTickTwo));
+            Assert.That(replayed.QueueRemoteChecksum(2, expectedTickTwo), Is.True);
+
+            // Tick 2 尚未确认，此帧不能拿预测历史误报 DESYNC。
+            baseline.Advance(PlayerInput.Neutral);
+            replayed.Advance(PlayerInput.Neutral);
+            Assert.That(replayed.Status, Is.EqualTo(RollbackStatus.Ok));
+
+            replayed.ReceiveRemote(2, corrected);
+            baseline.Advance(PlayerInput.Neutral);
+            replayed.Advance(PlayerInput.Neutral);
+
+            Assert.That(replayed.LastRollbackTick, Is.EqualTo(2));
+            Assert.That(replayed.Status, Is.EqualTo(RollbackStatus.Ok));
+            Assert.That(replayed.ChecksumAt(2), Is.EqualTo(expectedTickTwo));
+            Assert.That(replayed.State.Checksum(), Is.EqualTo(baseline.State.Checksum()));
+        }
+
+        [Test]
+        public void ConfirmedChecksumMismatchStillReportsDesync()
+        {
+            var session = new RollbackSession(Started(), 0);
+            session.ReceiveRemote(2, new PlayerInput { Move = Vector2.down });
+            for (int i = 0; i < 3; i++)
+                session.Advance(PlayerInput.Neutral);
+
+            Assert.That(session.ConfirmedTick, Is.GreaterThanOrEqualTo(2));
+            Assert.That(session.TryGetConfirmedChecksum(2, out int tick, out int checksum), Is.True);
+            Assert.That(tick, Is.EqualTo(2));
+            Assert.That(session.QueueRemoteChecksum(tick, checksum ^ 1), Is.True);
+
+            session.Advance(PlayerInput.Neutral);
+            Assert.That(session.Status, Is.EqualTo(RollbackStatus.Desync));
+        }
+
+        [Test]
         // 握手必须拒绝规则不一致，并让通过的 Joiner 获得约定的第二座位。
         public void HandshakeRejectsSettingsMismatchAndJoinAckAssignsSeatTwo()
         {
@@ -322,6 +569,30 @@ namespace PocketBump.Tests
                 session.ReceiveRemote(pending[i].tick, pending[i].input);
                 pending.RemoveAt(i);
             }
+        }
+
+        static MatchSimState LiveWithCarrier(
+            int carrier,
+            Vector2 carrierPosition,
+            Vector2 carrierFacing,
+            Vector2 otherPosition,
+            Vector2 otherFacing)
+        {
+            MatchSimState state = Started();
+            StepLive(state);
+            int other = carrier == 0 ? 1 : 0;
+            MatchSim.DebugPlacePlayer(state, carrier, carrierPosition, carrierFacing);
+            MatchSim.DebugPlacePlayer(state, other, otherPosition, otherFacing);
+            Vector2 facing = carrierFacing.sqrMagnitude < 0.0001f
+                ? PlayerChargeMath.SpawnFacing(carrier)
+                : carrierFacing.normalized;
+            MatchSim.DebugSetMarble(
+                state,
+                0,
+                carrierPosition + facing * ArenaLayout.BasketOffset,
+                Vector2.zero);
+            Assert.That(MatchSim.DebugCollect(state, carrier, 0), Is.True);
+            return state;
         }
     }
 }

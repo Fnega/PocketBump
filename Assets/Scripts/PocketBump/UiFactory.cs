@@ -42,7 +42,9 @@ namespace PocketBump
             Color color)
         {
             var go = RectObject(parent, name, anchor, offset, size);
-            go.AddComponent<Image>().color = color;
+            var image = go.AddComponent<Image>();
+            image.color = color;
+            StylePanel(image, size);
             return go;
         }
 
@@ -84,9 +86,17 @@ namespace PocketBump
             var go = RectObject(parent, name, anchor, offset, size);
             var image = go.AddComponent<Image>();
             image.color = VisualPalette.WithAlpha(color, 0.82f);
+            image.sprite = ArtCatalog.Sprite("UI/button_rectangle", 100f, new Vector4(9f, 9f, 9f, 9f));
+            image.type = Image.Type.Sliced;
             var button = go.AddComponent<Button>();
             button.targetGraphic = image;
             button.onClick.AddListener(onClick);
+            ColorBlock colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1.18f, 1.18f, 1.18f, 1f);
+            colors.pressedColor = new Color(0.72f, 0.78f, 0.84f, 1f);
+            colors.selectedColor = colors.highlightedColor;
+            button.colors = colors;
 
             var text = Text(
                 go.transform,
@@ -104,6 +114,95 @@ namespace PocketBump
             text.rectTransform.offsetMin = Vector2.zero;
             text.rectTransform.offsetMax = Vector2.zero;
             return button;
+        }
+
+        public static Image KeyPrompt(
+            Transform parent,
+            string name,
+            KeyCode key,
+            Vector2 anchor,
+            Vector2 offset,
+            Vector2 size,
+            Color color)
+        {
+            Transform existing = parent.Find(name);
+            GameObject go = existing != null ? existing.gameObject : RectObject(parent, name, anchor, offset, size);
+            if (existing != null)
+            {
+                RectTransform rect = go.GetComponent<RectTransform>();
+                rect.anchorMin = rect.anchorMax = anchor;
+                rect.anchoredPosition = offset;
+                rect.sizeDelta = size;
+            }
+            Image image = go.GetComponent<Image>();
+            if (image == null) image = go.AddComponent<Image>();
+            image.sprite = ArtCatalog.KeySprite(key);
+            image.color = color;
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+            image.enabled = image.sprite != null;
+            return image;
+        }
+
+        public static bool SetKeyPrompt(Transform button, KeyCode key)
+        {
+            if (button == null) return false;
+            Sprite sprite = ArtCatalog.KeySprite(key);
+            Transform existing = button.Find("KeyPrompt");
+            GameObject go = existing != null ? existing.gameObject : RectObject(
+                button, "KeyPrompt", new Vector2(1f, 0.5f), new Vector2(-24f, 0f), new Vector2(30f, 30f));
+            Image image = go.GetComponent<Image>();
+            if (image == null) image = go.AddComponent<Image>();
+            image.sprite = sprite;
+            image.color = VisualPalette.Text;
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+            image.enabled = sprite != null;
+            return sprite != null;
+        }
+
+        public static void ApplyTheme(Transform root)
+        {
+            if (root == null) return;
+            Image[] images = root.GetComponentsInChildren<Image>(true);
+            for (int i = 0; i < images.Length; i++)
+            {
+                Image image = images[i];
+                Button button = image.GetComponent<Button>();
+                if (button != null)
+                {
+                    image.sprite = ArtCatalog.Sprite("UI/button_rectangle", 100f, new Vector4(9f, 9f, 9f, 9f));
+                    image.type = Image.Type.Sliced;
+                    continue;
+                }
+
+                if (image.color.a <= 0.01f) continue;
+                RectTransform rect = image.rectTransform;
+                if (image.name.Contains("Panel") || image.name.Contains("Region") || rect.sizeDelta.x >= 1000f)
+                    StylePanel(image, rect.sizeDelta);
+            }
+        }
+
+        static void StylePanel(Image image, Vector2 size)
+        {
+            if (size.x >= 1000f || size.y >= 900f)
+            {
+                image.sprite = ArtCatalog.Sprite("Patterns/menu_diamonds", 256f);
+                image.type = Image.Type.Simple;
+                image.preserveAspect = false;
+                Color tint = image.color;
+                image.color = new Color(
+                    Mathf.Lerp(VisualPalette.Tabletop.r, tint.r, 0.35f),
+                    Mathf.Lerp(VisualPalette.Tabletop.g, tint.g, 0.35f),
+                    Mathf.Lerp(VisualPalette.Tabletop.b, tint.b, 0.35f),
+                    Mathf.Min(0.28f, tint.a));
+            }
+            else
+            {
+                image.sprite = ArtCatalog.Sprite(
+                    "UI/panel_rectangle_screws", 100f, new Vector4(12f, 12f, 12f, 12f));
+                image.type = Image.Type.Sliced;
+            }
         }
 
         // 所有 UI 元素都通过同一 RectTransform 初始化，减少锚点/尺寸的重复样板代码。

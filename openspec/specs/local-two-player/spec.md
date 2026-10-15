@@ -25,7 +25,7 @@ Each player's 2D collision radius SHALL be 0.78 (1.5 times the previous radius o
 - **THEN** each player's circle collider world radius is 0.78
 
 ### Requirement: Separate movement controls
-Player one SHALL move with WASD. Player two SHALL move with the arrow keys. Player one SHALL boost with the current boost binding (default K). Player two SHALL boost with the current boost binding (default Alpha2 / top-row 2). Movement SHALL be applied through the shared tick simulation with acceleration, momentum, coasting, braking, and reduced reversal authority so collisions can transfer impulse to marbles and to the other player. Players SHALL NOT have a jump action.
+Player one SHALL move with WASD. Player two SHALL move with the arrow keys. Player one SHALL boost with the current boost binding (default K). Player two SHALL boost with the current boost binding (default Keypad2 / numeric-keypad 2). Movement SHALL be applied through the shared tick simulation with acceleration, momentum, coasting, braking, and reduced reversal authority so collisions can transfer impulse to marbles and to the other player. Players SHALL NOT have a jump action.
 
 #### Scenario: Player one input accelerates with inertia
 - **WHEN** player one holds W from rest
@@ -70,14 +70,14 @@ When a player's input is not aligned with current velocity, steering SHALL use t
 - **THEN** steering acceleration is not lower than the same turn during normal (non-boost) movement
 
 ### Requirement: Each player has an independent hold-to-boost control
-Each player SHALL be able to hold their own boost key to enter a wind-up and then a boosted movement state. Default boost keys SHALL be K for player one and Alpha2 for player two. Boost SHALL increase acceleration and maximum speed and SHALL return to normal movement after release and a short recovery period. Boost SHALL NOT reduce steering acceleration. One player's boost input SHALL NOT activate the other player's boost. Boost SHALL be read from the current binding table.
+Each player SHALL be able to hold their own boost key to enter a wind-up and then a boosted movement state. Default boost keys SHALL be K for player one and Keypad2 for player two. Boost SHALL increase acceleration and maximum speed and SHALL return to normal movement after release and a short recovery period. Boost SHALL NOT reduce steering acceleration. One player's boost input SHALL NOT activate the other player's boost. Boost SHALL be read from the current binding table.
 
 #### Scenario: Player one boosts independently
-- **WHEN** player one holds K through the boost wind-up while player two does not hold Alpha2
+- **WHEN** player one holds K through the boost wind-up while player two does not hold Keypad2
 - **THEN** player one enters boosted movement AND player two remains in normal movement
 
 #### Scenario: Player two boosts independently
-- **WHEN** player two holds Alpha2 through the boost wind-up while player one does not hold K
+- **WHEN** player two holds Keypad2 through the boost wind-up while player one does not hold K
 - **THEN** player two enters boosted movement AND player one remains in normal movement
 
 #### Scenario: Boost keeps steering authority
@@ -135,3 +135,78 @@ Whether the match is local or LAN, player motion, marble motion, basket overlap,
 #### Scenario: Same input tape matches
 - **WHEN** two isolated simulations start from the same kickoff state AND consume the same pair of per-tick inputs
 - **THEN** after N ticks their scores, carry state, and body poses checksum equal
+
+### Requirement: Player-player contacts are stiffer than walls
+Player-player circle collisions SHALL use a dedicated restitution of 0.90. Wall, marble, basket-rim, and player-marble collisions SHALL keep the existing table bounciness of 0.58.
+
+#### Scenario: Head-on bump separates faster than a wall hit
+- **WHEN** two players of equal mass approach each other along the line between centers at the same relative speed they would have against a static wall
+- **THEN** their post-contact separating speed along that line is higher than the rebound speed from an equivalent wall contact using 0.58 restitution
+
+### Requirement: Dynamic circle contacts resolve closing motion correctly
+
+The shared simulation SHALL resolve player/player, player/marble, and marble/marble circle contacts with a unit contact normal, inverse-mass penetration correction, and a base restitution impulse only for closing normal motion. For isolated base-circle resolution with positive finite masses, the impulse SHALL preserve pair momentum and tangential velocity, and the separating normal speed SHALL equal the closing normal speed multiplied by the configured restitution within floating-point tolerance. Already separating or purely tangential contacts SHALL NOT receive another base restitution impulse. This requirement SHALL NOT remove the separately configured gameplay knockback for player/marble contacts. Existing masses and restitution values SHALL remain unchanged.
+
+#### Scenario: Approaching players rebound
+
+- **WHEN** two player circles approach along their contact normal and touch or overlap
+- **THEN** their base contact response changes closing motion to separating motion using restitution 0.90 and the existing player masses
+
+#### Scenario: Separating overlap is corrected without a second rebound
+
+- **WHEN** two overlapping circles already have separating normal velocities and only the base circle solver is applied
+- **THEN** their penetration is corrected in inverse-mass proportions while their velocities remain unchanged
+
+#### Scenario: Tangential motion is not reflected
+
+- **WHEN** two overlapping circles have zero relative normal velocity but nonzero tangential velocity and only the base circle solver is applied
+- **THEN** their penetration is corrected without changing their tangential or normal velocities
+
+#### Scenario: Unequal mass contact conserves base momentum
+
+- **WHEN** a player circle and a free marble circle undergo an isolated closing base contact without additional gameplay knockback
+- **THEN** the impulse uses their existing unequal masses, preserves total momentum, and produces the normal separating speed specified by restitution 0.58
+
+#### Scenario: Marble contacts use table restitution
+
+- **WHEN** two free marble circles undergo an isolated closing base contact
+- **THEN** they exchange impulse using their existing masses and restitution 0.58
+
+#### Scenario: Exact touching can rebound without moving positions
+
+- **WHEN** circle centers are exactly one radius sum apart and the circles have closing normal velocity
+- **THEN** base contact applies the appropriate normal impulse without a penetration displacement
+
+#### Scenario: Noncontact does not mutate the pair
+
+- **WHEN** the circles are farther apart than their radius sum
+- **THEN** base circle resolution does not change their positions or velocities
+
+#### Scenario: Exchanging a nondegenerate pair preserves the physical result
+
+- **WHEN** an isolated contact whose center separation is outside the degenerate fallback range is resolved with A and B exchanged together with their positions, velocities, radii, and masses
+- **THEN** the outputs assigned back to the original bodies match within floating-point tolerance
+
+### Requirement: Degenerate circle contacts remain bounded and replayable
+
+For supported finite simulation positions and velocities, coincident or near-coincident circle contacts SHALL use a deterministic unit fallback normal when center separation cannot reliably determine a normal. Penetration correction SHALL remain mass-weighted, SHALL NOT move either body by more than the pair's radius sum plus numerical tolerance in one resolution, and SHALL NOT produce NaN or infinite positions or velocities. Repeated isolated-pair resolution SHALL remove overlap within numerical tolerance. Resolving identical input state again SHALL produce identical output; no random or wall-clock input SHALL select the fallback.
+
+#### Scenario: Coincident circles do not fly across the arena
+
+- **WHEN** two stationary circle centers coincide exactly and base contact is resolved
+- **THEN** finite mass-weighted corrections separate them by their radius sum without either correction exceeding that sum plus numerical tolerance
+
+#### Scenario: Very small offsets do not amplify the normal
+
+- **WHEN** stationary circle centers differ by small positive or negative offsets around the normal-selection tolerance
+- **THEN** their contact resolution stays finite and bounded and repeated isolated resolution removes the overlap within numerical tolerance
+
+#### Scenario: Coincident moving circles have a repeatable response
+
+- **WHEN** the same supported coincident-center state with finite velocities is resolved multiple times from an identical initial state
+- **THEN** the chosen separation direction, resulting positions, and resulting velocities are identical and finite
+
+#### Scenario: Delayed input replays corrected collisions and shots
+
+- **WHEN** a two-seat input tape containing actual circle collisions and high-power shots is run once with all inputs available and once with remote inputs arriving late within the rollback window
+- **THEN** after corrections settle at the same confirmed tick the complete simulation state and checksum match the baseline for either local seat, with at least one rollback and the intended collision/shot events exercised

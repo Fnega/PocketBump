@@ -152,18 +152,4 @@ namespace PocketBump
         }
     }
 
-    public sealed class BasketWell : MonoBehaviour
-    {
-        public PlayerBasket Basket;
-
-        void OnTriggerEnter2D(Collider2D other)
-        {
-            if (Basket != null) Basket.HandleWellOverlap(other);
-        }
-
-        void OnTriggerStay2D(Collider2D other)
-        {
-            if (Basket != null) Basket.HandleWellOverlap(other);
-        }
-    }
 }

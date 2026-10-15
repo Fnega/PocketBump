@@ -52,6 +52,15 @@ namespace PocketBump
             go.transform.SetParent(parent, false);
             MeshRenderer renderer = MeshFactory.AddCube(go, color);
             MeshFactory.ApplyColor(renderer.sharedMaterial, color, emission);
+            renderer.enabled = false;
+            ArtCatalog.AddWorldSprite(
+                go.transform,
+                "KenneyChargeMask",
+                "LightMasks/cone",
+                VisualPalette.WithAlpha(color, 0.82f),
+                Vector3.zero,
+                Vector3.one,
+                8);
             return go.transform;
         }
 

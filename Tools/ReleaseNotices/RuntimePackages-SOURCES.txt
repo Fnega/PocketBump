@@ -1,0 +1,81 @@
+PocketBump 1.0: runtime package notice sources
+
+These are the original LICENSE.md and, where present, Third Party Notices.md
+from the exact installed package versions listed below. Their wording is not
+rewritten. The package versions are recorded in Packages/packages-lock.json;
+the copy tool verifies that lock before copying from Library/PackageCache.
+Some upstream package notices include editor-only components as well as runtime
+components; keeping an original notice does not mean every listed component is
+included in the game. This inventory is not a new license grant.
+
+com.unity.2d.animation@9.2.0
+com.unity.2d.common@8.1.0
+com.unity.2d.pixel-perfect@5.1.0
+com.unity.2d.spriteshape@9.1.0
+com.unity.2d.tilemap.extras@3.1.3
+com.unity.burst@1.8.21
+com.unity.collab-proxy@2.12.4
+com.unity.collections@1.2.4
+com.unity.mathematics@1.2.6
+com.unity.nuget.newtonsoft-json@3.2.1
+com.unity.render-pipelines.core@14.0.12
+com.unity.render-pipelines.universal@14.0.12
+com.unity.render-pipelines.universal-config@14.0.10
+com.unity.shadergraph@14.0.12
+com.unity.textmeshpro@3.0.7
+com.unity.timeline@1.7.7
+com.unity.ugui@1.0.0
+com.unity.visualscripting@1.9.4
+
+Additional original runtime-subdirectory licenses are included for
+com.unity.mathematics@1.2.6/Unity.Mathematics/Noise and LibTessDotNet under
+com.unity.render-pipelines.universal@14.0.12/Runtime/External and
+com.unity.2d.spriteshape@9.1.0/Runtime/External.
+
+MCPForUnity.Runtime.dll comes from com.coplaydev.unity-mcp version 10.1.2,
+locked commit 4ce7dd3cc54e37e2ed6dc59cb5a047f3dccb3f50.
+Original LICENSE retrieved on 2026-10-14 from the official repository:
+https://raw.githubusercontent.com/CoplayDev/unity-mcp/4ce7dd3cc54e37e2ed6dc59cb5a047f3dccb3f50/LICENSE
+Original LICENSE SHA256:
+6EFE650C965012AC418238DCD6B9116E4130A5220717EF0DFB539DD159C4245C
+
+Candidate libonigwrap.dll is byte-identical to the Windows x64 library under
+com.unity.collab-proxy@2.12.4/Lib/Editor/TextMateSharp/Onigwrap/libonigwrap/win-x64.
+SHA256: 6D539F2AD6E1B58D3C8836B9C3A1D50C97CBD7A6CA0C5DE25D994A7C4B1ECF42
+The native file carries a valid Unity Technologies SF Authenticode signature.
+The companion OnigwrapPlastic.dll identifies version 1.0.10 and source commit
+f8a040b6ceede60530b9572e73a5cce5e867daba (the same identity in the NuGet nuspec).
+
+Exact upstream NuGet package retrieved read-only on 2026-10-14:
+https://api.nuget.org/v3-flatcontainer/onigwrap/1.0.10/onigwrap.1.0.10.nupkg
+Package SHA256: C754C978E74036258377080DF86B05CE71CC80F527ABFEA248DD01948B744093
+Upstream native entry: runtimes/win-x64/native/libonigwrap.dll
+Upstream native SHA256: B36910E767A4310E2BEE38307B3A95BB53DA7D5E001C79BCCA82EF1A6DBF77DB
+
+The upstream native file and Unity-signed candidate were compared in memory.
+Every raw PE section matches byte for byte (matching length and SHA256):
+.text  185856 C3BB1A30EC32FC402C481193F29CE838E27B20BA8E8890A60C25C939F40ADBAC
+.data   19968 0D97AB32DF4805D488E0E61589082B9EF11683447B96F883865E98BB6AEA83AE
+.rdata 317440 76CC16AE24349C9A7F5ACCEE6FBD51813E6E1B6FAEAC1A21750F9BB05481A3B7
+.pdata   6144 81A790F985EFE4652FF63E7C8121D534AD523C4AAAB319490BF5DAF3646FE8B8
+.xdata   5632 D75DE4A05C37AE33430552A7DE8138D7281757B01BA5791C9CB134A4ED37DCF3
+.bss        0 E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855
+.edata    512 7FEF2A6A659CBE33BCCF2CC2AD1FF0AC8661DD52CF94C388DFC58A0F58010471
+.idata   1536 199A0349F00911889D3A9839B1E1C974A204D7F4C423B91B535ACD48FA451454
+.tls      512 076A27C79E5ACE2A3D47F9DD2E83E4FF6EA8872B3C2218F66C92B89B55F36560
+.reloc   2048 2A7C1E8DBC1B44F4D830998CD9CD4C86F637E0CC41CA939448AA545F448E5BAD
+
+Additionally, compare the complete pre-certificate payload after zeroing only
+the PE OptionalHeader CheckSum (4 bytes) and CertificateTable directory entry
+(8 bytes). Both normalized payloads have SHA256:
+FF09EEE96B43F521A08DCAED36D9ECAAA9CD7860C7B3615E85BF95C2AF61FFBF
+The extra signed-file bytes are the Authenticode certificate table. This
+read-only comparison did not alter either DLL, any signature, or a game file.
+
+Original Onigwrap notices retrieved from the matching official commit:
+https://raw.githubusercontent.com/aikawayataro/Onigwrap/f8a040b6ceede60530b9572e73a5cce5e867daba/LICENSE
+SHA256: 4DC9331502C288D277EC8AABE9322F833E9507C9B123AC95086CA44088616E38
+https://raw.githubusercontent.com/aikawayataro/Onigwrap/f8a040b6ceede60530b9572e73a5cce5e867daba/THIRD-PARTY-NOTICES.TXT
+SHA256: 5662CC07E23C65FD5D3790D9B8A4D7113F1DE881DE150A0E93296A2FAA1418A9
+The original third-party notice covers Oniguruma, fluentCODE/onigwrap,
+TextMateSharp and mono/SkiaSharp. It is preserved without alteration.

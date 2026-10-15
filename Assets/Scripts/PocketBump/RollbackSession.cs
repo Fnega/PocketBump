@@ -15,9 +15,12 @@ namespace PocketBump
     {
         public const int DelayTicks = ArenaLayout.InputDelayTicks;
         public const int BufferTicks = ArenaLayout.RollbackBufferTicks;
+        // 额外保留窗口起点的前一帧，确保恰好迟到 BufferTicks 的输入仍可恢复。
+        const int SnapshotTicks = BufferTicks + 1;
         // 输入会提前 DelayTicks 写入未来 Tick，因此输入环形表要比快照窗口多留这些槽位，
         // 否则未来输入可能覆盖仍处在回滚窗口内的旧输入。
-        const int StoreTicks = BufferTicks + DelayTicks + 1;
+        const int StoreTicks = BufferTicks + DelayTicks + NetplayProtocol.FutureTickAllowance +
+                               NetplayProtocol.InputHistoryLength + 1;
 
         readonly int _localSeat;
         readonly PlayerInput[] _local = new PlayerInput[StoreTicks];
@@ -26,19 +29,28 @@ namespace PocketBump
         readonly int[] _localTick = new int[StoreTicks];
         readonly int[] _remoteTick = new int[StoreTicks];
         readonly int[] _usedRemoteTick = new int[StoreTicks];
-        readonly int[] _afterTick = new int[BufferTicks];
-        readonly MatchSimState[] _after = new MatchSimState[BufferTicks];
-        readonly int[] _checksums = new int[BufferTicks];
+        readonly int[] _afterTick = new int[SnapshotTicks];
+        readonly MatchSimState[] _after = new MatchSimState[SnapshotTicks];
+        readonly int[] _checksums = new int[SnapshotTicks];
+        readonly SimEvents[] _events = new SimEvents[SnapshotTicks];
+        readonly int[] _remoteChecksumTick = new int[StoreTicks];
+        readonly int[] _remoteChecksums = new int[StoreTicks];
         readonly MatchSimState _initial;
-        PlayerInput _lastRemote = PlayerInput.Neutral;
-        bool _haveRemote;
-        int _confirmedRemoteTick = -1;
+        int _newestRemoteTick = -1;
+        int _contiguousRemoteTick = DelayTicks - 1;
+        int _confirmedStateTick = -1;
 
         public MatchSimState State { get; }
         public int LocalSeat => _localSeat;
-        public int ConfirmedTick => Mathf.Min(Mathf.Max(0, State.Tick - 1), _confirmedRemoteTick);
+        public int ConfirmedTick => _contiguousRemoteTick;
+        public int ConfirmedStateTick => _confirmedStateTick;
+        public int NewestRemoteTick => _newestRemoteTick;
         public RollbackStatus Status { get; private set; }
         public int LastRollbackTick { get; private set; } = -1;
+        public int ValidatedChecksumCount { get; private set; }
+        public int DesyncTick { get; private set; } = -1;
+        public int DesyncLocalChecksum { get; private set; }
+        public int DesyncRemoteChecksum { get; private set; }
 
         public RollbackSession(MatchSimState initial, int localSeat)
         {
@@ -51,32 +63,118 @@ namespace PocketBump
                 _localTick[i] = -1;
                 _remoteTick[i] = -1;
                 _usedRemoteTick[i] = -1;
+                _remoteChecksumTick[i] = -1;
             }
 
-            for (int i = 0; i < BufferTicks; i++)
+            for (int i = 0; i < SnapshotTicks; i++)
+            {
                 _afterTick[i] = -1;
+            }
         }
 
         public void QueueLocal(int tick, PlayerInput input)
         {
             // 本地输入也按 Tick 存储，而不是在重演时重新读键盘；历史重演必须使用原始输入。
-            Set(_local, _localTick, tick, input);
+            if (!HasStore(_localTick, tick)) Set(_local, _localTick, tick, input);
         }
 
         public void ReceiveRemote(int tick, PlayerInput input)
         {
-            // 迟到输入先入表，Advance 会把它和当时实际使用的预测输入比较。
+            TryReceiveRemote(tick, input);
+        }
+
+        public bool TryReceiveRemote(int tick, PlayerInput input)
+        {
+            int oldest = Mathf.Max(DelayTicks, State.Tick - BufferTicks);
+            int newest = State.Tick + NetplayProtocol.FutureTickAllowance;
+            if (tick < oldest || tick > newest) return false;
+
+            int index = StoreIndex(tick);
+            if (_remoteTick[index] == tick)
+                return _remote[index].EqualsInput(input);
+
             Set(_remote, _remoteTick, tick, input);
-            _lastRemote = input;
-            _haveRemote = true;
-            if (tick > _confirmedRemoteTick)
-                _confirmedRemoteTick = tick;
+            if (tick > _newestRemoteTick) _newestRemoteTick = tick;
+            while (HasStore(_remoteTick, _contiguousRemoteTick + 1))
+                _contiguousRemoteTick++;
+            return true;
+        }
+
+        public int ReceiveRemoteHistory(int newestTick, byte[] newestToOldest, int count)
+        {
+            if (newestToOldest == null || count < 1 || count > NetplayProtocol.InputHistoryLength ||
+                newestToOldest.Length < count)
+                return 0;
+
+            int accepted = 0;
+            // 先老后新写入，连续确认可一次跨过刚补齐的缺口。
+            for (int i = count - 1; i >= 0; i--)
+            {
+                int tick = newestTick - i;
+                if (TryReceiveRemote(tick, PlayerInput.Unpack(newestToOldest[i])))
+                    accepted++;
+            }
+
+            return accepted;
+        }
+
+        public int CopyLocalHistory(int newestTick, byte[] newestToOldest)
+        {
+            if (newestToOldest == null) return 0;
+            int limit = Mathf.Min(newestToOldest.Length, NetplayProtocol.InputHistoryLength);
+            int count = 0;
+            for (int i = 0; i < limit; i++)
+            {
+                int tick = newestTick - i;
+                if (!HasStore(_localTick, tick)) break;
+                newestToOldest[count++] = _local[StoreIndex(tick)].Pack();
+            }
+
+            return count;
+        }
+
+        public PlayerInput PredictedRemoteFor(int tick)
+        {
+            return RemoteFor(tick);
+        }
+
+        public bool QueueRemoteChecksum(int tick, int checksum)
+        {
+            int oldest = Mathf.Max(0, State.Tick - BufferTicks);
+            int newest = State.Tick + NetplayProtocol.FutureTickAllowance;
+            if (tick < oldest || tick > newest) return false;
+            int index = StoreIndex(tick);
+            if (_remoteChecksumTick[index] == tick)
+                return _remoteChecksums[index] == checksum;
+            _remoteChecksumTick[index] = tick;
+            _remoteChecksums[index] = checksum;
+            return true;
+        }
+
+        public bool TryGetConfirmedChecksum(int preferredTick, out int tick, out int checksum)
+        {
+            int oldest = Mathf.Max(0, State.Tick - BufferTicks);
+            // 输入刚收到时 ConfirmedTick 已前进，但历史尚未重演；只能发送已修正的状态。
+            for (int candidate = Mathf.Min(preferredTick, _confirmedStateTick); candidate >= oldest; candidate--)
+            {
+                if (!HasBuf(_afterTick, candidate)) continue;
+                tick = candidate;
+                checksum = _checksums[BufIndex(candidate)];
+                return true;
+            }
+
+            tick = -1;
+            checksum = 0;
+            return false;
         }
 
         public SimEvents Advance(PlayerInput sampledNow, int? remoteChecksumTick = null, int remoteChecksum = 0)
         {
-            Status = RollbackStatus.Ok;
-            LastRollbackTick = -1;
+            if (remoteChecksumTick.HasValue)
+                QueueRemoteChecksum(remoteChecksumTick.Value, remoteChecksum);
+            Reconcile();
+            if (Status != RollbackStatus.Ok || State.Phase == MatchState.MatchOver || State.Phase == MatchState.Pregame)
+                return default;
             int applyTick = State.Tick;
             // 双方统一延迟 2 Tick：用少量固定操作延迟换取更多报文按时到达，减少回滚频率。
             QueueLocal(applyTick + DelayTicks, sampledNow);
@@ -89,8 +187,21 @@ namespace PocketBump
                 return default;
             }
 
+            SimEvents events = StepAndRecord(applyTick);
+            _confirmedStateTick = Mathf.Min(ConfirmedTick, State.Tick - 1);
+            ValidatePendingRemoteChecksums();
+            return events;
+        }
+
+        // Receiving input and settling a finish must not sample or execute another tick.
+        public void Reconcile()
+        {
+            LastRollbackTick = -1;
+            if (Status != RollbackStatus.Ok) return;
+            int applyTick = State.Tick;
+
             int rollbackFrom = -1;
-            int minCheck = Mathf.Max(0, applyTick - BufferTicks + 1);
+            int minCheck = Mathf.Max(0, applyTick - BufferTicks);
             for (int t = minCheck; t < applyTick; t++)
             {
                 // 只有真实输入和当时使用的输入都存在时才比较；最早的不一致 Tick 是回滚起点。
@@ -107,31 +218,74 @@ namespace PocketBump
                 // 恢复到错误发生前，然后按原本地输入 + 最新真实/预测远端输入重演到当前 Tick。
                 LastRollbackTick = rollbackFrom;
                 RestoreBefore(rollbackFrom);
-                for (int t = rollbackFrom; t < applyTick; t++)
-                    StepStored(t);
+                for (int i = 0; i < SnapshotTicks; i++)
+                    if (_afterTick[i] >= rollbackFrom) _afterTick[i] = -1;
+                for (int i = 0; i < StoreTicks; i++)
+                    if (_usedRemoteTick[i] >= rollbackFrom) _usedRemoteTick[i] = -1;
+                for (int t = rollbackFrom; t < applyTick && State.Phase != MatchState.MatchOver; t++)
+                    StepAndRecord(t);
             }
 
-            SimEvents events = StepStored(applyTick);
-            _after[BufIndex(applyTick)] = State.Clone();
-            _afterTick[BufIndex(applyTick)] = applyTick;
-            _checksums[BufIndex(applyTick)] = State.Checksum();
+            _confirmedStateTick = Mathf.Min(ConfirmedTick, State.Tick - 1);
+            // 先校验历史，再复用快照槽位，避免窗口边缘的证据被本帧覆盖。
+            ValidatePendingRemoteChecksums();
+        }
 
-            if (remoteChecksumTick.HasValue &&
-                remoteChecksumTick.Value >= 0 &&
-                HasBuf(_afterTick, remoteChecksumTick.Value) &&
-                _checksums[BufIndex(remoteChecksumTick.Value)] != remoteChecksum)
-            {
-                // 相同 Tick 的权威状态哈希不同说明双方已分叉；宁可显式中止也不静默错局。
-                Status = RollbackStatus.Desync;
-            }
+        public bool TryGetConfirmedEvents(int tick, out SimEvents events)
+        {
+            events = default;
+            if (tick > _confirmedStateTick || !HasBuf(_afterTick, tick)) return false;
+            events = _events[BufIndex(tick)];
+            return true;
+        }
 
-            return events;
+        public bool TryGetConfirmedState(int tick, out MatchSimState state)
+        {
+            state = null;
+            if (tick > _confirmedStateTick || !HasBuf(_afterTick, tick)) return false;
+            state = _after[BufIndex(tick)].Clone();
+            return true;
         }
 
         public int ChecksumAt(int tick)
         {
             if (!HasBuf(_afterTick, tick)) return 0;
             return _checksums[BufIndex(tick)];
+        }
+
+        SimEvents StepAndRecord(int tick)
+        {
+            SimEvents events = StepStored(tick);
+            int index = BufIndex(tick);
+            _after[index] = State.Clone();
+            _afterTick[index] = tick;
+            _checksums[index] = State.Checksum();
+            _events[index] = events;
+            return events;
+        }
+
+        void ValidatePendingRemoteChecksums()
+        {
+            for (int i = 0; i < StoreTicks; i++)
+            {
+                int tick = _remoteChecksumTick[i];
+                if (tick >= 0 && tick < State.Tick - SnapshotTicks)
+                {
+                    _remoteChecksumTick[i] = -1;
+                    continue;
+                }
+                // 只有真实远端输入连续覆盖到该 Tick 后，本地状态才是可比较的最终历史。
+                if (tick < 0 || tick > _confirmedStateTick || !HasBuf(_afterTick, tick)) continue;
+                int remote = _remoteChecksums[i];
+                _remoteChecksumTick[i] = -1;
+                ValidatedChecksumCount++;
+                if (_checksums[BufIndex(tick)] == remote) continue;
+                DesyncTick = tick;
+                DesyncLocalChecksum = _checksums[BufIndex(tick)];
+                DesyncRemoteChecksum = remote;
+                Status = RollbackStatus.Desync;
+                return;
+            }
         }
 
         SimEvents StepStored(int tick)
@@ -159,7 +313,7 @@ namespace PocketBump
             {
                 State.CopyFrom(_initial);
                 for (int t = 0; t < tick; t++)
-                    StepStored(t);
+                    StepAndRecord(t);
                 return;
             }
 
@@ -175,8 +329,18 @@ namespace PocketBump
         {
             if (HasStore(_remoteTick, tick))
                 return _remote[StoreIndex(tick)];
-            // 当前 Tick 未到达时沿用最近远端意图；连续移动比每帧回到 Neutral 更符合玩家行为。
-            return _haveRemote ? _lastRemote : PlayerInput.Neutral;
+
+            // 只沿用该 Tick 之前最新的 held 状态；ShootPressed 是边沿，预测时必须清除。
+            int oldest = Mathf.Max(DelayTicks, tick - StoreTicks + 1);
+            for (int prior = tick - 1; prior >= oldest; prior--)
+            {
+                if (!HasStore(_remoteTick, prior)) continue;
+                PlayerInput predicted = _remote[StoreIndex(prior)];
+                predicted.ShootPressed = false;
+                return predicted;
+            }
+
+            return PlayerInput.Neutral;
         }
 
         static void Set(PlayerInput[] arr, int[] stamps, int tick, PlayerInput input)
@@ -206,8 +370,8 @@ namespace PocketBump
 
         static int BufIndex(int tick)
         {
-            int i = tick % BufferTicks;
-            return i < 0 ? i + BufferTicks : i;
+            int i = tick % SnapshotTicks;
+            return i < 0 ? i + SnapshotTicks : i;
         }
     }
 }

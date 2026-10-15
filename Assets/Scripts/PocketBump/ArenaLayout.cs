@@ -29,7 +29,8 @@ namespace PocketBump
         public const float Bounciness = 0.58f;
         public const float PlayerPlayerBounciness = 0.90f;
         public const float MarbleLinearDrag = 2f;
-        public const float MarbleMaxSpeed = 16f;
+        // 自由球统一限速不得低于设计满力射速；正常阻力仍在每 Tick 生效。
+        public const float MarbleMaxSpeed = ShotMaxSpeed;
         public const float MarbleMinRunSpeed = 0.35f;
         public const float MarbleMildImpactSpeed = 6f;
         public const float MarbleDangerousSpeed = 10f;
@@ -46,6 +47,7 @@ namespace PocketBump
         public const float BasketWidth = 1.11f;
         public const float BasketLength = 0.56f;
         public const float BasketRim = 0.08f;
+        public const float BasketStealReleasePadding = 0.08f;
         public const float ShotMinSpeed = 8f;
         public const float ShotMaxSpeed = 22f;
         public const float RecoilImpulseMin = 12f;

@@ -3,6 +3,7 @@
 # Get latest from https://github.com/github/gitignore/blob/main/Unity.gitignore
 #
 .utmp/
+.art-source/
 /[Ll]ibrary/
 /[Tt]emp/
 /[Oo]bj/
@@ -11,6 +12,15 @@
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
 *.log
+
+# Local diagnostics, captured evidence and one-off verification assets.
+# Keep Tools scripts, release instructions and source license notices tracked.
+/Tools/*Results/
+/Assets/PocketBumpDashArt/VerificationFixtures/
+/Assets/PocketBumpDashArt/VerificationFixtures.meta
+/Assets/InitTestScene*.unity
+/Assets/InitTestScene*.unity.meta
+/.idea/
 
 # MemoryCaptures can get excessive in size.
 # They also could contain extremely sensitive data
