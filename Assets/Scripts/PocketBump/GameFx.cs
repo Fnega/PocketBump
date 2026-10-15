@@ -4,6 +4,16 @@ using UnityEngine;
 // 联机特效记录来源 Tick，以便回滚时移除已被修正历史中的“幽灵特效”。
 namespace PocketBump
 {
+    public enum GameFxKind
+    {
+        Ring,
+        Collect,
+        Fire,
+        Impact,
+        Score,
+        Gate
+    }
+
     public sealed class GameFx : MonoBehaviour
     {
         SpriteRenderer _renderer;
@@ -16,17 +26,30 @@ namespace PocketBump
 
         public static void Pulse(Vector2 position, Color color, float startScale, float endScale, float duration)
         {
-            Pulse(position, color, startScale, endScale, duration, -1);
+            Pulse(position, color, startScale, endScale, duration, -1, GameFxKind.Ring);
         }
 
         // tick=-1 表示普通本地表现；联机事件传入来源 Tick，供回滚定向清理。
         public static void Pulse(Vector2 position, Color color, float startScale, float endScale, float duration, int tick)
         {
+            Pulse(position, color, startScale, endScale, duration, tick, GameFxKind.Ring);
+        }
+
+        public static void Pulse(
+            Vector2 position,
+            Color color,
+            float startScale,
+            float endScale,
+            float duration,
+            int tick,
+            GameFxKind kind)
+        {
             if (!Application.isPlaying) return;
             var go = new GameObject("PulseFx");
             go.transform.position = position;
             var renderer = go.AddComponent<SpriteRenderer>();
-            renderer.sprite = SpriteFactory.Circle();
+            renderer.sprite = ArtCatalog.FxSprite(kind);
+            if (renderer.sprite == null) renderer.sprite = SpriteFactory.Circle();
             renderer.material = VisualPalette.SpriteMaterial();
             renderer.sortingOrder = 30;
             var fx = go.AddComponent<GameFx>();

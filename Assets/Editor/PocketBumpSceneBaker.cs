@@ -20,6 +20,12 @@ namespace PocketBump.Editor
         // 一次性刷新依赖资源并重建两个正式场景，确保提交的 Scene 与当前代码生成逻辑一致。
         public static void BakeAuthoredScenes()
         {
+            DashProductionSceneBaker.MigrateFormalScenes();
+        }
+
+        // Retained only as reference for old fixtures. Never exposed as a scene command.
+        static void BakeLegacyAuthoredScenes()
+        {
             EnsureFolders();
             EnsureTmpResources();
             CreateSpriteAsset("Box", false);
@@ -47,12 +53,7 @@ namespace PocketBump.Editor
         [MenuItem("Tools/Pocket Bump/Bake Main Menu Only")]
         public static void BakeMainMenuOnly()
         {
-            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
-            EnsureFolders();
-            EnsureTmpResources();
-            UiFactory.ReloadAssets();
-            BakeMainMenu();
-            AssetDatabase.SaveAssets();
+            DashProductionSceneBaker.MigrateMainMenuOnly();
         }
 
         // 创建最小根对象后让 MainMenuController 生成 UI，再保存为可直接运行的场景。

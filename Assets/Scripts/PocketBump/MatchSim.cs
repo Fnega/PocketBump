@@ -7,6 +7,7 @@ namespace PocketBump
     public static class MatchSim
     {
         public const float TickDt = ArenaLayout.SimTickDt;
+        const float CircleNormalMinDistanceSquared = 0.00000001f;
         public static readonly int KickoffTicks = Mathf.RoundToInt(ArenaLayout.KickoffSeconds / TickDt);
         public static readonly int FreezeTicks = Mathf.RoundToInt(ArenaLayout.FreezeSeconds / TickDt);
 
@@ -191,6 +192,7 @@ namespace PocketBump
             m.Position = position;
             m.Velocity = velocity;
             m.Carrier = -1;
+            m.StealContactLatched = false;
             state.Marbles[index] = m;
             for (int i = 0; i < 2; i++)
             {
@@ -207,9 +209,19 @@ namespace PocketBump
         public static bool DebugCollect(MatchSimState state, int player, int marble)
         {
             var events = new SimEvents();
-            if (!WellOverlaps(state.Players[player], state.Marbles[marble].Position))
+            MarbleSim m = state.Marbles[marble];
+            if (m.Carrier < 0)
+            {
+                if (!WellOverlaps(state.Players[player], m.Position))
+                    return false;
+                return TryCollect(state, player, marble, false, ref events);
+            }
+
+            if (m.Carrier == player || m.StealContactLatched)
                 return false;
-            return TryCollect(state, player, marble, ref events);
+            if (!BasketStealRegionsOverlap(state.Players[0], state.Players[1], 0f))
+                return false;
+            return TryCollect(state, player, marble, true, ref events);
         }
 
         public static bool DebugShoot(MatchSimState state, int player)
@@ -276,7 +288,8 @@ namespace PocketBump
                     Active = true,
                     Position = ClusterOffset(i, count),
                     Velocity = Vector2.zero,
-                    Carrier = -1
+                    Carrier = -1,
+                    StealContactLatched = false
                 };
             }
         }
@@ -390,6 +403,7 @@ namespace PocketBump
             Vector2 launch = basket + dir * (ArenaLayout.BasketLength * 0.5f + ArenaLayout.MarbleRadius + 0.08f);
             MarbleSim m = state.Marbles[marbleIndex];
             m.Carrier = -1;
+            m.StealContactLatched = false;
             m.Position = launch;
             m.Velocity = dir * speed;
             state.Marbles[marbleIndex] = m;
@@ -618,22 +632,54 @@ namespace PocketBump
 
         static void ProcessBaskets(MatchSimState state, ref SimEvents events)
         {
-            // 每颗弹珠每 Tick 最多被一个篮筐认领。成功后立即停止尝试另一名玩家，
-            // 防止刚发生的抢夺因旧位置仍重叠而在同一 Tick 被原持有者抢回。
             for (int marble = 0; marble < state.Marbles.Length; marble++)
             {
-                if (!state.Marbles[marble].Active) continue;
+                MarbleSim m = state.Marbles[marble];
+                if (!m.Active) continue;
+                if (m.Carrier >= 0)
+                {
+                    ProcessCarriedSteal(state, marble, ref events);
+                    continue;
+                }
+
                 for (int p = 0; p < 2; p++)
                 {
                     if (state.Players[p].CollectLock > 0f) continue;
-                    if (!WellOverlaps(state.Players[p], state.Marbles[marble].Position)) continue;
-                    if (TryCollect(state, p, marble, ref events))
+                    if (!WellOverlaps(state.Players[p], m.Position)) continue;
+                    if (TryCollect(state, p, marble, false, ref events))
                         break;
                 }
             }
         }
 
-        static bool TryCollect(MatchSimState state, int player, int marble, ref SimEvents events)
+        static void ProcessCarriedSteal(MatchSimState state, int marble, ref SimEvents events)
+        {
+            MarbleSim m = state.Marbles[marble];
+            bool retainedContact = BasketStealRegionsOverlap(
+                state.Players[0],
+                state.Players[1],
+                ArenaLayout.BasketStealReleasePadding);
+            if (m.StealContactLatched)
+            {
+                if (!retainedContact)
+                {
+                    m.StealContactLatched = false;
+                    state.Marbles[marble] = m;
+                }
+                return;
+            }
+
+            if (!BasketStealRegionsOverlap(state.Players[0], state.Players[1], 0f))
+                return;
+
+            int thief = OpponentOf(m.Carrier);
+            PlayerSim player = state.Players[thief];
+            if (player.CollectLock > 0f || player.Carried >= 0)
+                return;
+            TryCollect(state, thief, marble, true, ref events);
+        }
+
+        static bool TryCollect(MatchSimState state, int player, int marble, bool latchSteal, ref SimEvents events)
         {
             MarbleSim m = state.Marbles[marble];
             if (!m.Active) return false;
@@ -641,6 +687,8 @@ namespace PocketBump
             if (p.CollectLock > 0f) return false;
             if (p.Carried >= 0 && p.Carried != marble) return false;
             if (m.Carrier == player) return false;
+            if (latchSteal && (m.Carrier < 0 || m.StealContactLatched)) return false;
+            if (!latchSteal && m.Carrier >= 0) return false;
             if (m.Carrier >= 0 && m.Carrier != player)
             {
                 PlayerSim other = state.Players[m.Carrier];
@@ -651,6 +699,7 @@ namespace PocketBump
             }
 
             m.Carrier = player;
+            m.StealContactLatched = latchSteal;
             m.Velocity = Vector2.zero;
             p.Carried = marble;
             state.Marbles[marble] = m;
@@ -784,6 +833,40 @@ namespace PocketBump
             return CircleAabbLocal(local, ArenaLayout.MarbleRadius, hw, hh);
         }
 
+        static bool BasketStealRegionsOverlap(PlayerSim a, PlayerSim b, float padding)
+        {
+            Vector2 forwardA = a.Facing.sqrMagnitude < 0.0001f ? Vector2.down : a.Facing.normalized;
+            Vector2 rightA = new Vector2(forwardA.y, -forwardA.x);
+            Vector2 forwardB = b.Facing.sqrMagnitude < 0.0001f ? Vector2.down : b.Facing.normalized;
+            Vector2 rightB = new Vector2(forwardB.y, -forwardB.x);
+            Vector2 half = new Vector2(
+                ArenaLayout.BasketWidth * 0.5f + padding,
+                ArenaLayout.BasketLength * 0.5f + padding);
+            Vector2 delta = BasketOrigin(b) - BasketOrigin(a);
+            return OverlapsOnAxis(delta, rightA, rightA, forwardA, half, rightB, forwardB, half) &&
+                   OverlapsOnAxis(delta, forwardA, rightA, forwardA, half, rightB, forwardB, half) &&
+                   OverlapsOnAxis(delta, rightB, rightA, forwardA, half, rightB, forwardB, half) &&
+                   OverlapsOnAxis(delta, forwardB, rightA, forwardA, half, rightB, forwardB, half);
+        }
+
+        static bool OverlapsOnAxis(
+            Vector2 delta,
+            Vector2 axis,
+            Vector2 rightA,
+            Vector2 forwardA,
+            Vector2 halfA,
+            Vector2 rightB,
+            Vector2 forwardB,
+            Vector2 halfB)
+        {
+            float distance = Mathf.Abs(Vector2.Dot(delta, axis));
+            float radiusA = halfA.x * Mathf.Abs(Vector2.Dot(rightA, axis)) +
+                            halfA.y * Mathf.Abs(Vector2.Dot(forwardA, axis));
+            float radiusB = halfB.x * Mathf.Abs(Vector2.Dot(rightB, axis)) +
+                            halfB.y * Mathf.Abs(Vector2.Dot(forwardB, axis));
+            return distance <= radiusA + radiusB;
+        }
+
         static Vector2 WorldToLocal(Vector2 world, Vector2 origin, Vector2 right, Vector2 forward)
         {
             // 投影到篮筐自身坐标系后，可把旋转 OBB 当成轴对齐矩形复用检测代码。
@@ -870,22 +953,19 @@ namespace PocketBump
             Vector2 d = pb - pa;
             float minDist = ra + rb;
             float distSq = d.sqrMagnitude;
-            if (distSq > minDist * minDist || distSq < 0.00000001f)
-            {
-                if (distSq >= minDist * minDist) return false;
-                d = Vector2.right;
-                distSq = 0.00000001f;
-            }
+            if (distSq > minDist * minDist) return false;
 
             float dist = Mathf.Sqrt(distSq);
-            Vector2 n = d / dist;
+            // 同心/极近中心固定使用单位轴；真实距离仍用于穿透量，不能用微小距离放大伪法线。
+            Vector2 n = distSq < CircleNormalMinDistanceSquared ? Vector2.right : d / dist;
             float pen = minDist - dist;
             float invA = 1f / ma;
             float invB = 1f / mb;
             pa -= n * pen * (invA / (invA + invB));
             pb += n * pen * (invB / (invA + invB));
             float vn = Vector2.Dot(va - vb, n);
-            if (vn > 0f) return true;
+            // n 从 A 指向 B，因此 va-vb 在 n 上为正才表示相向接近。
+            if (vn <= 0f) return true;
             float j = -(1f + bounciness) * vn / (invA + invB);
             va += n * (j * invA);
             vb -= n * (j * invB);

@@ -14,10 +14,24 @@ namespace PocketBump
         [SerializeField] TextMeshProUGUI _banner;
         [SerializeField] TextMeshProUGUI _resultTitle;
         [SerializeField] GameObject _resultPanel;
+        [SerializeField] GameObject _networkIssuePanel;
+        [SerializeField] TextMeshProUGUI _networkIssueReason;
+        [SerializeField] TextMeshProUGUI _networkIssueDetail;
+        TextMeshProUGUI _lanRulesNote;
+        Button _rematchButton;
+        Button _modifyRulesButton;
+        TextMeshProUGUI _rematchLabel;
+        bool _showedConfirmedResult;
+
+        public bool NetworkIssueVisible => _networkIssuePanel != null && _networkIssuePanel.activeSelf;
+        public string NetworkIssueReason => _networkIssueReason != null ? _networkIssueReason.text : "";
+        public RectTransform NetworkIssueRect => _networkIssuePanel != null
+            ? _networkIssuePanel.GetComponent<RectTransform>() : null;
 
         void Awake()
         {
             ResolveReferences();
+            EnsureNetworkIssuePanel();
             WireResultButtons();
         }
 
@@ -57,12 +71,74 @@ namespace PocketBump
                 Vector2.zero,
                 new Vector2(1600f, 68f),
                 VisualPalette.Text);
+            hud.EnsureNetworkIssuePanel();
             hud.BuildResult(canvas);
             hud.ShowScores(0, 0);
             hud.ShowCountdown(-1f);
             hud.ShowBanner("");
             hud.WireResultButtons();
             return hud;
+        }
+
+        void EnsureNetworkIssuePanel()
+        {
+            if (_networkIssuePanel != null) return;
+            Transform existing = transform.Find("NetworkIssuePanel");
+            if (existing != null)
+            {
+                _networkIssuePanel = existing.gameObject;
+                ResolveReferences();
+                return;
+            }
+
+            _networkIssuePanel = UiFactory.Panel(
+                transform,
+                "NetworkIssuePanel",
+                new Vector2(1f, 1f),
+                new Vector2(-235f, -155f),
+                new Vector2(430f, 250f),
+                VisualPalette.WithAlpha(VisualPalette.TabletopAccent, 0.97f));
+            UiFactory.Text(
+                _networkIssuePanel.transform,
+                "NetworkIssueTitle",
+                "NETWORK PAUSED",
+                28f,
+                TextAlignmentOptions.Center,
+                new Vector2(0.5f, 0.82f),
+                Vector2.zero,
+                new Vector2(380f, 40f),
+                VisualPalette.Danger);
+            _networkIssueReason = UiFactory.Text(
+                _networkIssuePanel.transform,
+                "NetworkIssueReason",
+                "",
+                24f,
+                TextAlignmentOptions.Center,
+                new Vector2(0.5f, 0.62f),
+                Vector2.zero,
+                new Vector2(380f, 36f),
+                VisualPalette.Text);
+            _networkIssueDetail = UiFactory.Text(
+                _networkIssuePanel.transform,
+                "NetworkIssueDetail",
+                "",
+                17f,
+                TextAlignmentOptions.Center,
+                new Vector2(0.5f, 0.43f),
+                Vector2.zero,
+                new Vector2(380f, 52f),
+                VisualPalette.Text);
+            _networkIssueDetail.enableWordWrapping = true;
+            UiFactory.Button(
+                _networkIssuePanel.transform,
+                "NetworkMainMenu",
+                "MAIN MENU",
+                new Vector2(0.5f, 0.16f),
+                Vector2.zero,
+                new Vector2(250f, 50f),
+                VisualPalette.Wall,
+                ReturnToMenuFromNetworkIssue);
+            _networkIssuePanel.SetActive(false);
         }
 
         void BuildResult(Transform canvas)
@@ -126,10 +202,14 @@ namespace PocketBump
                     case "Countdown": _countdown = text; break;
                     case "Banner": _banner = text; break;
                     case "Winner": _resultTitle = text; break;
+                    case "NetworkIssueReason": _networkIssueReason = text; break;
+                    case "NetworkIssueDetail": _networkIssueDetail = text; break;
                 }
             }
             Transform panel = transform.Find("ResultPanel");
             if (panel != null) _resultPanel = panel.gameObject;
+            Transform networkPanel = transform.Find("NetworkIssuePanel");
+            if (networkPanel != null) _networkIssuePanel = networkPanel.gameObject;
         }
 
         // 重新绑定前清空监听，避免编辑器烘焙监听和运行时监听叠加。
@@ -144,8 +224,44 @@ namespace PocketBump
                     case "Rematch": button.onClick.AddListener(() => GameSession.Instance.Rematch()); break;
                     case "ModifyRules": button.onClick.AddListener(() => GameSession.Instance.ModifyRules()); break;
                     case "MainMenu": button.onClick.AddListener(() => GameSession.Instance.ReturnToMainMenu()); break;
+                    case "NetworkMainMenu": button.onClick.AddListener(ReturnToMenuFromNetworkIssue); break;
                 }
             }
+        }
+
+        public void ShowNetworkIssue(string reason)
+        {
+            EnsureNetworkIssuePanel();
+            if (_resultPanel != null) _resultPanel.SetActive(false);
+            _networkIssueReason.text = string.IsNullOrEmpty(reason) ? "NETWORK ERROR" : reason;
+            _networkIssueDetail.text = NetworkIssueDescription(reason);
+            _networkIssuePanel.SetActive(true);
+        }
+
+        public static string NetworkIssueDescription(string reason)
+        {
+            switch (reason)
+            {
+                case "INPUT HOLE": return "REMOTE INPUT COULD NOT BE RECOVERED";
+                case "DESYNC": return "THE TWO GAME STATES NO LONGER MATCH";
+                case "PEER TIMEOUT": return "NO VALID PACKETS RECEIVED FOR 5 SECONDS";
+                case "PEER LEFT": return "THE OTHER PLAYER LEFT THE MATCH";
+                case "LAN HANDSHAKE TIMEOUT": return "THE CONNECTION COULD NOT BE ESTABLISHED";
+                case "SETTINGS MISMATCH": return "PLAYERS USE DIFFERENT MATCH SETTINGS";
+                case "COULD NOT BIND PORT": return "UDP PORT 7777 IS NOT AVAILABLE";
+                case "COULD NOT OPEN SOCKET": return "THE NETWORK SOCKET COULD NOT BE OPENED";
+                case "BAD ADDRESS": return "THE HOST ADDRESS IS INVALID";
+                case "RESULT CONFIRMATION TIMEOUT": return "THE FINAL RESULT COULD NOT BE CONFIRMED";
+                case "REMATCH TIMEOUT": return "THE NEXT MATCH COULD NOT BE STARTED";
+                case "REMATCH EPOCH EXHAUSTED": return "LEAVE AND HOST A NEW SESSION";
+                default: return "THE NETWORK SESSION HAS STOPPED";
+            }
+        }
+
+        void ReturnToMenuFromNetworkIssue()
+        {
+            Time.timeScale = 1f;
+            GameSession.Instance.ReturnToMainMenu();
         }
 
         public void ShowScores(int p1, int p2)
@@ -194,11 +310,85 @@ namespace PocketBump
 
         public void ShowResult(int winner)
         {
+            ConfigureResultMode(false);
             Color color = VisualPalette.PlayerColor(winner);
             _resultTitle.color = color;
             _resultTitle.text = winner == 0 ? "PLAYER 1 WINS" : "PLAYER 2 WINS";
             _resultPanel.SetActive(true);
             GameFx.Pulse(Vector2.zero, color, 0.5f, 5f, 0.7f);
+        }
+
+        void ConfigureResultMode(bool lan)
+        {
+            if (_resultPanel == null) return;
+            if (_rematchButton == null)
+            {
+                _rematchButton = _resultPanel.transform.Find("Rematch").GetComponent<Button>();
+                _modifyRulesButton = _resultPanel.transform.Find("ModifyRules").GetComponent<Button>();
+                _rematchLabel = _rematchButton.GetComponentInChildren<TextMeshProUGUI>(true);
+            }
+            if (lan && _lanRulesNote == null)
+            {
+                Transform existing = _resultPanel.transform.Find("LanRulesNote");
+                _lanRulesNote = existing != null ? existing.GetComponent<TextMeshProUGUI>() : UiFactory.Text(
+                    _resultPanel.transform, "LanRulesNote",
+                    "REMATCH USES THE SAME RULES\nTO CHANGE RULES: MAIN MENU > HOST LAN", 20f,
+                    TextAlignmentOptions.Center, new Vector2(0.5f, 0.31f), Vector2.zero,
+                    new Vector2(680f, 76f), VisualPalette.Text);
+                _lanRulesNote.enableWordWrapping = true;
+            }
+            _modifyRulesButton.gameObject.SetActive(!lan);
+            _modifyRulesButton.interactable = !lan;
+            if (_lanRulesNote != null) _lanRulesNote.gameObject.SetActive(lan);
+            _rematchButton.interactable = true;
+            _rematchLabel.text = "REMATCH";
+            _resultTitle.fontSize = 62f;
+        }
+
+        public void ShowLanLifecycle(LanMatchLifecycle lifecycle)
+        {
+            if (lifecycle == null || _resultPanel == null) return;
+            if (lifecycle.Phase == LanLifecyclePhase.Playing)
+            {
+                _resultPanel.SetActive(false);
+                _showedConfirmedResult = false;
+                return;
+            }
+            if (lifecycle.Phase == LanLifecyclePhase.Failed) return;
+            ConfigureResultMode(true);
+            _resultPanel.SetActive(true);
+            bool starting = lifecycle.Phase == LanLifecyclePhase.PreparingNextEpoch ||
+                lifecycle.Phase == LanLifecyclePhase.StartupBarrier;
+            _rematchButton.interactable = lifecycle.ResultConfirmed && !lifecycle.LocalConsent && !starting;
+            _rematchLabel.text = starting ? "STARTING..." : lifecycle.LocalConsent ? "WAITING FOR PEER" : "REMATCH";
+            if (!lifecycle.ResultConfirmed || starting)
+            {
+                _resultTitle.fontSize = 36f;
+                _resultTitle.color = VisualPalette.Text;
+                _resultTitle.text = starting
+                    ? (lifecycle.Epoch == 0 ? "STARTING MATCH" : "STARTING NEXT MATCH")
+                    : "CONFIRMING RESULT";
+                return;
+            }
+            int winner = lifecycle.ConfirmedFinish.Winner;
+            Color color = VisualPalette.PlayerColor(winner);
+            _resultTitle.color = color;
+            _resultTitle.text = winner == 0 ? "PLAYER 1 WINS" : "PLAYER 2 WINS";
+            if (!_showedConfirmedResult)
+            {
+                _showedConfirmedResult = true;
+                GameFx.Pulse(Vector2.zero, color, 0.5f, 5f, 0.7f);
+            }
+        }
+
+        public void ResetForMatch()
+        {
+            StopAllCoroutines();
+            _showedConfirmedResult = false;
+            if (_score != null) _score.rectTransform.localScale = Vector3.one;
+            if (_resultPanel != null) _resultPanel.SetActive(false);
+            if (_networkIssuePanel != null) _networkIssuePanel.SetActive(false);
+            ShowBanner("");
         }
     }
 }

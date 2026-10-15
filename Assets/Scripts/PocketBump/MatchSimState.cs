@@ -28,6 +28,7 @@ namespace PocketBump
         public Vector2 Position;
         public Vector2 Velocity;
         public int Carrier;
+        public bool StealContactLatched;
         public float ImpactLock0;
         public float ImpactLock1;
         public int DangerousImpactCount;
@@ -121,6 +122,7 @@ namespace PocketBump
                     h = Mix(h, Marbles[i].Position);
                     h = Mix(h, Marbles[i].Velocity);
                     h = Mix(h, Marbles[i].Carrier);
+                    h = Mix(h, Marbles[i].StealContactLatched ? 1 : 0);
                     h = Mix(h, Marbles[i].DangerousImpactCount);
                 }
 

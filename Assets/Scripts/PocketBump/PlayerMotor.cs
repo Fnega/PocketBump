@@ -150,6 +150,7 @@ namespace PocketBump
             Director.Sim.Players[PlayerIndex] = p;
             MarbleSim m = Director.Sim.Marbles[carried];
             m.Carrier = -1;
+            m.StealContactLatched = false;
             Director.Sim.Marbles[carried] = m;
         }
 

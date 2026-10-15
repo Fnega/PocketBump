@@ -1,0 +1,18 @@
+PocketBump 1.0 original synthesized sound effects
+
+Created for this project in October 2026 using the project's editable C# source:
+Assets/Scripts/PocketBump/DashSoundSynthesis.cs
+
+The Dash, impact, wall break, three pickup, goal and respawn sounds are synthesized
+from sine oscillators, envelopes and a private xorshift noise generator. They use
+no downloaded recordings, external audio assets, sample libraries or music.
+No third-party audio attribution or runtime network access is required.
+
+Audio clips are generated once in memory per match component and reused through
+a bounded voice pool. The synthesizer never uses the simulation's random state.
+Gameplay-triggered audio consumes corrected confirmed events only. Presentation
+volume is stored locally and is not part of deterministic gameplay settings.
+
+The earlier art-sample notes describing a silent preview apply to that isolated
+sample. The 1.0 production game includes these approved original short effects.
+The game's existing font and art licenses remain unchanged.

@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Release tooling verifies these original license/source records byte-for-byte.
+# Preserve their bytes on checkout, including on core.autocrlf=true systems.
+Tools/ReleaseNotices/*.txt -text

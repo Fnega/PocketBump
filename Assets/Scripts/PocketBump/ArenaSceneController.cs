@@ -7,14 +7,23 @@ namespace PocketBump
     public sealed class ArenaSceneController : MonoBehaviour
     {
         [SerializeField] MatchDirector _director;
+        [SerializeField] DashMatchDirector _dashDirector;
         public MatchDirector Director => _director;
+        public DashMatchDirector DashDirector => _dashDirector;
 
         void Awake()
         {
             MatchSettings settings = GameSession.Ensure().CopySettings();
+            if (_dashDirector == null) _dashDirector = FindObjectOfType<DashMatchDirector>();
+            if (_dashDirector != null)
+            {
+                foreach (MatchDirector legacy in FindObjectsOfType<MatchDirector>()) legacy.enabled = false;
+                _dashDirector.InitializeAuthored(settings, true);
+                return;
+            }
             if (_director == null) _director = FindObjectOfType<MatchDirector>();
             if (_director == null)
-                _director = MatchDirector.Build(settings, true);
+                _dashDirector = DashMatchDirector.Build(settings, true);
             else
                 _director.InitializeAuthored(settings, true);
         }
@@ -22,6 +31,11 @@ namespace PocketBump
         public void SetDirector(MatchDirector director)
         {
             _director = director;
+        }
+
+        public void SetDirector(DashMatchDirector director)
+        {
+            _dashDirector = director;
         }
     }
 }

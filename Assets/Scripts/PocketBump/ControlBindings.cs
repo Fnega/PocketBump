@@ -17,7 +17,7 @@ namespace PocketBump
         public const KeyCode DefaultP1Shoot = KeyCode.J;
         public const KeyCode DefaultP1Boost = KeyCode.K;
         public const KeyCode DefaultP2Shoot = KeyCode.Alpha1;
-        public const KeyCode DefaultP2Boost = KeyCode.Alpha2;
+        public const KeyCode DefaultP2Boost = KeyCode.Keypad2;
 
         const string PrefP1Shoot = "PocketBump.P1Shoot";
         const string PrefP1Boost = "PocketBump.P1Boost";

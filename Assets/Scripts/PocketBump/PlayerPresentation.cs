@@ -11,6 +11,7 @@ namespace PocketBump
         [SerializeField] TrailRenderer _trail;
         [SerializeField] MeshRenderer _rim;
         [SerializeField] Color _identity;
+        [SerializeField] SpriteRenderer _aura;
 
         void Awake()
         {
@@ -19,6 +20,7 @@ namespace PocketBump
             Transform rim = transform.Find("Rim");
             if (_rim == null && rim != null) _rim = rim.GetComponent<MeshRenderer>();
             if (_motor != null) _identity = VisualPalette.PlayerColor(_motor.PlayerIndex);
+            ApplyArtTheme();
         }
 
         // 玩家索引决定身份色；视觉缩放与 MatchSim 的玩家半径保持一致。
@@ -41,6 +43,7 @@ namespace PocketBump
                 new Vector3(-0.16f, 0.18f, -0.28f),
                 Vector3.one * 0.28f,
                 VisualPalette.WithAlpha(Color.white, 0.9f));
+            ApplyArtTheme();
 
             _trail = GetComponent<TrailRenderer>();
             if (_trail == null) _trail = gameObject.AddComponent<TrailRenderer>();
@@ -67,6 +70,20 @@ namespace PocketBump
                 : 0.45f;
             if (_rim != null)
                 MeshFactory.SetColor(_rim, Color.Lerp(_identity, Color.white, pulse * 0.35f));
+            if (_aura != null)
+                _aura.color = VisualPalette.WithAlpha(_identity, _motor.IsBoosting ? 0.42f : 0.2f);
+        }
+
+        void ApplyArtTheme()
+        {
+            _aura = ArtCatalog.AddWorldSprite(
+                transform,
+                "KenneyAura",
+                "LightMasks/circle_rings",
+                VisualPalette.WithAlpha(_identity, 0.2f),
+                new Vector3(0f, 0f, -0.55f),
+                Vector3.one * 1.45f,
+                2);
         }
 
         void ApplyTrail(bool boosted)

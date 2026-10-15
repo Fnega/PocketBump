@@ -10,6 +10,7 @@ namespace PocketBump
         [SerializeField] MarbleMotor _motor;
         [SerializeField] TrailRenderer _trail;
         [SerializeField] MeshRenderer _rim;
+        Renderer[] _kenneyRenderers;
 
         void Awake()
         {
@@ -17,6 +18,7 @@ namespace PocketBump
             _trail = _trail != null ? _trail : GetComponent<TrailRenderer>();
             Transform rim = transform.Find("Rim");
             if (_rim == null && rim != null) _rim = rim.GetComponent<MeshRenderer>();
+            ApplyArtTheme();
         }
 
         // 网格和 TrailRenderer 只创建一次，后续配合弹珠对象池反复启用。
@@ -37,6 +39,7 @@ namespace PocketBump
                 new Vector3(-0.18f, 0.2f, -0.28f),
                 Vector3.one * 0.25f,
                 Color.white);
+            ApplyArtTheme();
 
             _trail = GetComponent<TrailRenderer>();
             if (_trail == null) _trail = gameObject.AddComponent<TrailRenderer>();
@@ -63,6 +66,22 @@ namespace PocketBump
             _trail.endColor = VisualPalette.WithAlpha(color, 0f);
             if (_rim != null)
                 MeshFactory.SetColor(_rim, color);
+            if (_kenneyRenderers != null)
+            {
+                for (int i = 0; i < _kenneyRenderers.Length; i++)
+                    if (_kenneyRenderers[i] != null)
+                        MeshFactory.ApplyColor(_kenneyRenderers[i].sharedMaterial, color, dangerous ? 0.9f : 0.42f);
+            }
+        }
+
+        void ApplyArtTheme()
+        {
+            GameObject visual = ArtCatalog.AttachModel(
+                gameObject,
+                "Models/Marble/marble-low",
+                VisualPalette.Marble,
+                Quaternion.Euler(90f, 0f, 0f));
+            _kenneyRenderers = visual != null ? visual.GetComponentsInChildren<Renderer>(true) : null;
         }
     }
 }

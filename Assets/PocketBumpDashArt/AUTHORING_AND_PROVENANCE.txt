@@ -1,0 +1,10 @@
+INDEPENDENT SILENT ART SAMPLE - NOT APPROVED FINAL ART
+Original project-authored primitive composition and generated meshes; no external model, texture or audio downloads.
+Materials are editable assets in Materials; robots, free ball, pillar, repairable wall and three Buff symbols are Prefabs.
+Player visual details live under Motion; editing material assets or adding child details survives normal scene loading and Play Mode.
+The explicit creation command refuses existing assets/scene. It never replaces MainMenu, Arena or DashArenaGreybox, and does not change Build Settings.
+Gameplay uses ArenaRulesProfile.CreateProductionV1, not mesh colliders. All sample geometry is non-authoritative and has no physics colliders.
+The separate display board is a staged model/effect comparison, not evidence of natural gameplay events.
+Chinese HUD references the separately approved Noto Sans CJK SC Regular font. Its source and license record are retained under Fonts.
+No sound or music is included. The golden bell is a visual effect only.
+Controls: local P1 WASD + current Dash (default K), P2 arrows + current Dash (default top-row 2).
