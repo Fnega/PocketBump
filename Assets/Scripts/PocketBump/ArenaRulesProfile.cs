@@ -80,6 +80,12 @@ namespace PocketBump
         public float Acceleration => data.Acceleration;
         public float Braking => data.Braking;
         public float ExternalDecay => data.ExternalDecay;
+        // Policy zero is the released constant-assistance/constant-decay simulation.
+        // The optional extension is content-only: arena layout identity never changes.
+        public int HandfeelPolicyVersion => data.HandfeelPolicyVersion;
+        public bool UsesRefinedHandfeel => HandfeelPolicyVersion == 1;
+        public int RecoilGraceTicks => data.RecoilGraceTicks;
+        public float RecoilTailMultiplier => data.RecoilTailMultiplier;
         public float MaxExternalSpeed => data.MaxExternalSpeed;
         public float DashSpeed => data.DashSpeed;
         public float BallMaxSpeed => data.BallMaxSpeed;
@@ -130,6 +136,10 @@ namespace PocketBump
         public static ArenaRulesProfile CreateProductionV1(int pointsToWin = 8, int ballCount = 1) =>
             Builder.CreateProductionV1(pointsToWin, ballCount).Freeze();
 
+        // Development comparison only. Never replace the release default before playtest approval.
+        public static ArenaRulesProfile CreateHandfeelCandidate(int pointsToWin = 8, int ballCount = 1) =>
+            Builder.CreateHandfeelCandidate(pointsToWin, ballCount).Freeze();
+
         public Builder ToBuilder() => data.CopyOwned();
         public Vector2 SpawnForSeat(int seat)
         {
@@ -166,6 +176,10 @@ namespace PocketBump
                 GreenTicks, PurpleTicks, BuffSpawnTicks, FreezeTicks, KickoffTicks };
             foreach (int duration in durations) Require(duration > 0 && duration <= 360000, "Tick duration outside 1..360000.");
             Require(PickupLimit > 0 && PickupLimit <= 16, "PickupLimit must be within 1..16.");
+            Require(HandfeelPolicyVersion >= 0 && HandfeelPolicyVersion <= 1, "Unsupported handfeel policy.");
+            Require(RecoilGraceTicks >= 0 && RecoilGraceTicks <= 360000, "Recoil grace must be within 0..360000 ticks.");
+            Positive(RecoilTailMultiplier, nameof(RecoilTailMultiplier));
+            Require(RecoilTailMultiplier >= 1f, "Recoil tail cannot decay more slowly than the initial stage.");
             float[] tuning = { GreenImpactMultiplier, NormalSpeed, Acceleration, Braking, ExternalDecay,
                 MaxExternalSpeed, DashSpeed, BallMaxSpeed, BallDrag, NormalShotImpulse, DashShotImpulse,
                 NormalPlayerImpulse, DashPlayerImpulse, WallBreakSpeed, DangerousBallSpeed,
@@ -369,6 +383,17 @@ namespace PocketBump
                     foreach (float value in tuning) WriteFloat(writer, value);
                     writer.Write("xorshift32:13,17,5;spawn:position,type:equal3;blue:one");
                     writer.Write(ArenaRandom.DefaultSeed);
+                    // Keep the released byte encoding exactly intact when all extension
+                    // settings have their legacy values. Even dormant authoring edits get
+                    // a distinct content identity rather than an untracked parameter.
+                    if (HandfeelPolicyVersion != 0 || RecoilGraceTicks != 0 || RecoilTailMultiplier != 1f)
+                    {
+                        writer.Write("PocketBump.handfeel");
+                        writer.Write(HandfeelPolicyVersion);
+                        writer.Write(RecoilGraceTicks);
+                        WriteFloat(writer, RecoilTailMultiplier);
+                        writer.Write(UsesRefinedHandfeel ? 2 : 1); // Paired state-checksum schema.
+                    }
                 }
                 writer.Flush();
                 using (SHA256 sha = SHA256.Create())
@@ -398,6 +423,8 @@ namespace PocketBump
             public int PickupLimit = 3, FreezeTicks = 60, KickoffTicks = 180;
             public float GreenImpactMultiplier = 1.5f, NormalSpeed = 12f, Acceleration = 36f, Braking = 21f;
             public float ExternalDecay = 8f, MaxExternalSpeed = 72f, DashSpeed = 24f, BallMaxSpeed = 48f, BallDrag = 2f;
+            public int HandfeelPolicyVersion = 0, RecoilGraceTicks = 0;
+            public float RecoilTailMultiplier = 1f;
             public float NormalShotImpulse = 4f, DashShotImpulse = 12f, NormalPlayerImpulse = 6f, DashPlayerImpulse = 14f;
             public float WallBreakSpeed = 18f, DangerousBallSpeed = 10f, DangerousImpulseScale = 1.15f;
             public float DangerousEnergyRetention = .75f, ContactReleasePadding = .08f, RepairClearance = .05f, PickupRadius = .6f;
@@ -416,6 +443,18 @@ namespace PocketBump
                 return result;
             }
 
+            public static Builder CreateHandfeelCandidate(int pointsToWin = 8, int ballCount = 1)
+            {
+                Builder result = CreateProductionV1(pointsToWin, ballCount);
+                result.IsProvisional = true;
+                result.HandfeelPolicyVersion = 1;
+                result.RecoilGraceTicks = 6;
+                result.RecoilTailMultiplier = 6f;
+                result.NormalPlayerImpulse = 4.5f;
+                result.DashPlayerImpulse = 10.5f;
+                return result;
+            }
+
             internal static Builder CreateProductionV1(int pointsToWin, int ballCount)
             {
                 // Approved 2026-10-02: explicitly pin every scalar as well as the ordered
@@ -430,6 +469,7 @@ namespace PocketBump
                     PickupLimit = 3, FreezeTicks = 60, KickoffTicks = 180,
                     GreenImpactMultiplier = 1.5f, NormalSpeed = 12f, Acceleration = 36f, Braking = 21f,
                     ExternalDecay = 8f, MaxExternalSpeed = 72f, DashSpeed = 24f, BallMaxSpeed = 48f, BallDrag = 2f,
+                    HandfeelPolicyVersion = 0, RecoilGraceTicks = 0, RecoilTailMultiplier = 1f,
                     NormalShotImpulse = 4f, DashShotImpulse = 12f, NormalPlayerImpulse = 6f, DashPlayerImpulse = 14f,
                     WallBreakSpeed = 18f, DangerousBallSpeed = 10f, DangerousImpulseScale = 1.15f,
                     DangerousEnergyRetention = .75f, ContactReleasePadding = .08f, RepairClearance = .05f, PickupRadius = .6f,

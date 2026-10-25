@@ -26,10 +26,11 @@ namespace PocketBump
         public bool IsFailed => State == LanHandshakeState.Failed;
 
         public DashLanHandshake(LanHandshakeRole role, ArenaRulesProfile rules, int hostMatchId, uint hostSeed,
-            IPEndPoint remote = null, ulong joinNonce = 0)
+            IPEndPoint remote = null, ulong joinNonce = 0, bool allowHandfeelCandidate = false)
         {
             this.rules = rules ?? throw new ArgumentNullException(nameof(rules));
-            if (rules.IsProvisional) throw new ArgumentException("LAN requires a frozen production profile.", nameof(rules));
+            if (rules.IsProvisional && !DashHandfeelPreview.Allows(rules, allowHandfeelCandidate))
+                throw new ArgumentException("LAN requires approved rules or an explicitly enabled development handfeel candidate.", nameof(rules));
             if (role != LanHandshakeRole.Host && role != LanHandshakeRole.Joiner) throw new ArgumentOutOfRangeException(nameof(role));
             if (role == LanHandshakeRole.Host && (hostMatchId == 0 || hostSeed == 0))
                 throw new ArgumentException("Host must choose a connection identity and a nonzero gameplay seed.");

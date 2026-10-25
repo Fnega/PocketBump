@@ -57,6 +57,7 @@ namespace PocketBump
         float _observationsStoppedAt = -1f;
 
         public ArenaRulesProfile Rules { get; }
+        public bool HandfeelCandidateAllowed { get; }
         public DashLanHandshake Handshake { get; }
         public DashRollbackSession Rollback { get; private set; }
         public DashLanLifecycle Lifecycle { get; private set; }
@@ -134,25 +135,28 @@ namespace PocketBump
 
         public static DashLanSession Host(ArenaRulesProfile rules, int matchId, uint seed,
             Func<float> clock, int port = 0, Func<uint> nextSeedFactory = null,
-            Func<ArenaRulesProfile, uint, int, DashArenaState> initialStateFactory = null) =>
-            new DashLanSession(true, rules, clock, port, null, matchId, seed, 0, nextSeedFactory, initialStateFactory);
+            Func<ArenaRulesProfile, uint, int, DashArenaState> initialStateFactory = null,
+            bool allowHandfeelCandidate = false) =>
+            new DashLanSession(true, rules, clock, port, null, matchId, seed, 0, nextSeedFactory, initialStateFactory, allowHandfeelCandidate);
 
         public static DashLanSession Join(ArenaRulesProfile rules, IPEndPoint endpoint,
             Func<float> clock, ulong joinNonce = 0, int localPort = 0,
-            Func<ArenaRulesProfile, uint, int, DashArenaState> initialStateFactory = null) =>
-            new DashLanSession(false, rules, clock, localPort, endpoint, 0, 0, joinNonce, null, initialStateFactory);
+            Func<ArenaRulesProfile, uint, int, DashArenaState> initialStateFactory = null,
+            bool allowHandfeelCandidate = false) =>
+            new DashLanSession(false, rules, clock, localPort, endpoint, 0, 0, joinNonce, null, initialStateFactory, allowHandfeelCandidate);
 
         DashLanSession(bool host, ArenaRulesProfile rules, Func<float> clock, int port,
             IPEndPoint remote, int matchId, uint seed, ulong nonce, Func<uint> nextSeedFactory,
-            Func<ArenaRulesProfile, uint, int, DashArenaState> initialStateFactory)
+            Func<ArenaRulesProfile, uint, int, DashArenaState> initialStateFactory, bool allowHandfeelCandidate)
         {
             if (port < 0 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
             Rules = rules ?? throw new ArgumentNullException(nameof(rules));
+            HandfeelCandidateAllowed = DashHandfeelPreview.Allows(rules, allowHandfeelCandidate);
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _host = host; _nextSeedFactory = nextSeedFactory;
             _initialStateFactory = initialStateFactory;
             Handshake = new DashLanHandshake(host ? LanHandshakeRole.Host : LanHandshakeRole.Joiner,
-                rules, matchId, seed, remote, nonce);
+                rules, matchId, seed, remote, nonce, allowHandfeelCandidate);
             _handshakeDeadline = _clock() + HandshakeSeconds;
             _resultView = _results.AsReadOnly();
             _peer = new LanUdpPeer();

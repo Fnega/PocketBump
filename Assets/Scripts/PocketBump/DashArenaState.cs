@@ -18,6 +18,7 @@ namespace PocketBump
         public int RespawnTicks;
         public int GreenTicks;
         public int PurpleTicks;
+        public int RecoilGraceTicks;
         public Vector2 Velocity => ControlVelocity + ExternalVelocity;
     }
 
@@ -152,13 +153,14 @@ namespace PocketBump
             Array.Copy(source, destination, source.Length);
         }
 
-        // Canonical schema 1: declared order, explicit little-endian integer bytes,
+        // Legacy schema 1 is unchanged; handfeel schema 2 additionally stores recoil phase.
+        // Both use declared order, explicit little-endian integer bytes,
         // raw IEEE float bits, length-prefixed UTF-16 profile digest, then sized arrays.
         // No Unity approximate equality, float rounding, or randomized string hashes.
         public int Checksum()
         {
             var hash = DashStateHash.Begin();
-            hash.Add(1);
+            hash.Add(Rules.UsesRefinedHandfeel ? 2 : 1);
             hash.Add(Rules.ContentHash);
             hash.Add(Tick);
             hash.Add(Epoch);
@@ -187,6 +189,7 @@ namespace PocketBump
                 hash.Add(player.RespawnTicks);
                 hash.Add(player.GreenTicks);
                 hash.Add(player.PurpleTicks);
+                if (Rules.UsesRefinedHandfeel) hash.Add(player.RecoilGraceTicks);
             }
             hash.Add(_balls.Length);
             foreach (DashBallState ball in _balls)

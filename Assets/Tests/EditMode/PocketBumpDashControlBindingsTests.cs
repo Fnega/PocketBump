@@ -22,6 +22,7 @@ namespace PocketBump.Tests
         {
             Assert.That(_bindings.P1Dash, Is.EqualTo(KeyCode.K));
             Assert.That(_bindings.P2Dash, Is.EqualTo(KeyCode.Keypad2));
+            Assert.That(_bindings.MinimapToggle, Is.EqualTo(KeyCode.M));
             Assert.That(_bindings.PregameBanner(), Does.Contain("P2: ARROWS  Num2 DASH"));
             Assert.That(_bindings.PregameBanner(), Does.Not.Contain("SHOOT").And.Not.Contain("BOOST"));
             Assert.That(_store.WrittenKeys, Is.Empty);
@@ -117,7 +118,7 @@ namespace PocketBump.Tests
             _store.Values["PocketBump.P2Boost"] = (int)KeyCode.Alpha2;
             Assert.That(_bindings.TrySet(0, KeyCode.J), Is.True);
             Assert.That(_bindings.TrySet(1, KeyCode.Alpha1), Is.True);
-            CollectionAssert.AreEquivalent(new[] { DashControlBindings.P1PreferenceKey, DashControlBindings.P2PreferenceKey },
+            CollectionAssert.AreEquivalent(new[] { DashControlBindings.P1PreferenceKey, DashControlBindings.P2PreferenceKey, DashControlBindings.MinimapPreferenceKey },
                 new HashSet<string>(_store.WrittenKeys));
             Assert.That(_store.Values["PocketBump.P1Shoot"], Is.EqualTo((int)KeyCode.J));
             Assert.That(_store.Values["PocketBump.P1Boost"], Is.EqualTo((int)KeyCode.K));
@@ -186,6 +187,71 @@ namespace PocketBump.Tests
         {
             Assert.Throws<ArgumentOutOfRangeException>(() => _bindings.Dash(-1));
             Assert.Throws<ArgumentOutOfRangeException>(() => _bindings.TrySet(2, KeyCode.J));
+            Assert.That(_store.WrittenKeys, Is.Empty);
+        }
+
+        [Test]
+        public void MapBindingPersistsAndOnlyItsCurrentKeyIsReservedFromDash()
+        {
+            Assert.That(_bindings.TrySet(0, KeyCode.M), Is.False);
+            Assert.That(_bindings.TrySetMinimapToggle(KeyCode.Tab), Is.True);
+            Assert.That(_bindings.TrySet(0, KeyCode.M), Is.True);
+            Assert.That(_bindings.TrySet(1, KeyCode.Tab), Is.False);
+            var reloaded = new DashControlBindings(_store);
+            Assert.That(reloaded.MinimapToggle, Is.EqualTo(KeyCode.Tab));
+            Assert.That(reloaded.P1Dash, Is.EqualTo(KeyCode.M));
+            Assert.That(reloaded.P2Dash, Is.EqualTo(KeyCode.Keypad2));
+            Assert.That(reloaded.PregameBanner(), Does.Contain("MAP Tab"));
+            reloaded.ResetToDefaults(true);
+            Assert.That(new DashControlBindings(_store).MinimapToggle, Is.EqualTo(KeyCode.M));
+        }
+
+        [TestCase(KeyCode.K)] [TestCase(KeyCode.Keypad2)] [TestCase(KeyCode.W)]
+        [TestCase(KeyCode.UpArrow)] [TestCase(KeyCode.Escape)] [TestCase(KeyCode.None)]
+        [TestCase(KeyCode.Mouse0)] [TestCase((KeyCode)99999)]
+        public void MapRejectsMovementReservedOrDashKeysWithoutSaving(KeyCode key)
+        {
+            Assert.That(_bindings.TrySetMinimapToggle(key), Is.False);
+            Assert.That(_bindings.MinimapToggle, Is.EqualTo(KeyCode.M));
+            Assert.That(_store.WrittenKeys, Is.Empty);
+            Assert.That(_store.SaveCount, Is.Zero);
+        }
+
+        [TestCase(0, KeyCode.Q, KeyCode.K)]
+        [TestCase(1, KeyCode.Q, KeyCode.Keypad2)]
+        [TestCase(0, KeyCode.K, KeyCode.Keypad2)]
+        [TestCase(1, KeyCode.Keypad2, KeyCode.K)]
+        public void OldDashOnMapKeyRepairsOnlyThatSeatWithoutWriting(int seat, KeyCode other, KeyCode repaired)
+        {
+            _store.Values[seat == 0 ? DashControlBindings.P1PreferenceKey : DashControlBindings.P2PreferenceKey] = (int)KeyCode.M;
+            _store.Values[seat == 0 ? DashControlBindings.P2PreferenceKey : DashControlBindings.P1PreferenceKey] = (int)other;
+            Assert.That(_bindings.MinimapToggle, Is.EqualTo(KeyCode.M));
+            Assert.That(_bindings.Dash(seat), Is.EqualTo(repaired));
+            Assert.That(_bindings.Dash(1 - seat), Is.EqualTo(other));
+            Assert.That(_store.WrittenKeys, Is.Empty);
+            Assert.That(_store.SaveCount, Is.Zero);
+        }
+
+        [Test]
+        public void InvalidStoredMapFallsBackWithoutResettingUnrelatedDashOrWriting()
+        {
+            _store.Values[DashControlBindings.MinimapPreferenceKey] = (int)KeyCode.Escape;
+            _store.Values[DashControlBindings.P1PreferenceKey] = (int)KeyCode.Q;
+            _store.Values[DashControlBindings.P2PreferenceKey] = (int)KeyCode.M;
+            Assert.That(_bindings.MinimapToggle, Is.EqualTo(KeyCode.M));
+            Assert.That(_bindings.P1Dash, Is.EqualTo(KeyCode.Q));
+            Assert.That(_bindings.P2Dash, Is.EqualTo(KeyCode.Keypad2));
+            Assert.That(_store.Values[DashControlBindings.MinimapPreferenceKey], Is.EqualTo((int)KeyCode.Escape));
+            Assert.That(_store.WrittenKeys, Is.Empty);
+        }
+
+        [Test]
+        public void StoredMapOnDefaultDashHasAFreeFallbackAndNoDuplicateActions()
+        {
+            _store.Values[DashControlBindings.MinimapPreferenceKey] = (int)KeyCode.K;
+            Assert.That(_bindings.MinimapToggle, Is.EqualTo(KeyCode.K));
+            Assert.That(_bindings.P1Dash, Is.EqualTo(KeyCode.LeftShift));
+            Assert.That(_bindings.P2Dash, Is.EqualTo(KeyCode.Keypad2));
             Assert.That(_store.WrittenKeys, Is.Empty);
         }
     }
