@@ -42,7 +42,7 @@ namespace PocketBump
             if (_controls == null) return;
             _controls.text = lan
                 ? "本机：WASD 移动 + " + DashControlBindings.Label(bindings.P1Dash) + " 冲刺\n双方都使用自己电脑的 P1 键位；ESC 打开个人菜单"
-                : "P1：WASD + " + DashControlBindings.Label(bindings.P1Dash) + " 冲刺    P2：方向键 + " + DashControlBindings.Label(bindings.P2Dash) + " 冲刺\n2 = 键盘上方数字行，Num2 = 小键盘；可在规则设置中改键";
+                : "P1：WASD + " + DashControlBindings.Label(bindings.P1Dash) + " 冲刺    P2：方向键 + " + DashControlBindings.Label(bindings.P2Dash) + " 冲刺\n2 = 键盘上方数字行，Num2 = 小键盘；可在规则设置中改键\nLOCAL MAP: " + DashControlBindings.Label(bindings.MinimapToggle) + " / SETTINGS";
         }
     }
 

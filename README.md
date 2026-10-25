@@ -6,6 +6,12 @@
 
 支持同电脑双人左右分屏，以及同一局域网双人对战。当前没有互联网房间、自动匹配或中继服务。
 
+## 开发候选（源码，尚未打包）
+
+源码包含后续的轻碰分层、较快反冲收尾、本地双方地面 Dash 粗环，以及默认 **M** 的双小地图开关；地图快捷键可在 **SETTINGS → LOCAL MAP** 修改。最新手感候选将玩家互撞的普通/Dash 额外击退减为 4.5/10.5（原值 6/14），保留基础物理与撞球力度。
+
+在 Unity 选择 **Tools → Pocket Bump → Handfeel Preview → Use Candidate for Next Play**，再进入本地比赛体验；每次退出 Play 后需要重新选择。直接进入的正式默认仍为 V1。候选尚待试玩确认，现有 1.2 下载包未被替换。详见 [候选试玩步骤](openspec/changes/refine-collision-feel-and-dash-readability/candidate-playtest.md) 和 [分轮验证记录](openspec/changes/refine-collision-feel-and-dash-readability/verification.md)。
+
 ## 下载与运行
 
 试玩版本与发布状态请查看 [GitHub Releases](https://github.com/Fnega/PocketBump/releases)。可下载版本会附带 `PocketBump1.2.zip`；GitHub 自动生成的 **Source code** 压缩包是源码，不是可直接运行的游戏。

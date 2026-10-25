@@ -131,7 +131,13 @@ namespace PocketBump
             if (!p.Alive) return;
             if (!Finite(input.Move)) input.Move = Vector2.zero;
             input.Move = Vector2.ClampMagnitude(input.Move, 1f);
-            p.ExternalVelocity = Vector2.MoveTowards(p.ExternalVelocity, Vector2.zero, r.ExternalDecay / 60f);
+            float decay = r.ExternalDecay;
+            if (r.UsesRefinedHandfeel && p.RecoilGraceTicks == 0) decay *= r.RecoilTailMultiplier;
+            p.ExternalVelocity = Vector2.MoveTowards(p.ExternalVelocity, Vector2.zero, decay / 60f);
+            // Consume after the reduction: an impact setting six gets six complete
+            // subsequent old-rate updates, not five because of AdvanceTimers ordering.
+            if (!r.UsesRefinedHandfeel || p.ExternalVelocity.Equals(Vector2.zero)) p.RecoilGraceTicks = 0;
+            else if (p.RecoilGraceTicks > 0) p.RecoilGraceTicks--;
             if (p.StunTicks > 0) return; // Keep inertia, but no drive or queued action.
             if (state.Phase == MatchState.Live && input.DashPressed && p.DashTicks == 0 && p.DashCooldownTicks == 0)
             {
@@ -410,6 +416,18 @@ namespace PocketBump
             if (a < 2 && b < 2) s.PlayerContacts[0] = true;
             else if (a < 2) s.PlayerBallContacts[a * s.Balls.Length + b - 2] = true;
             if (closing <= 0) return;
+            Vector2 beforeExternalA = a < 2 ? s.Players[a].ExternalVelocity : Vector2.zero;
+            Vector2 beforeExternalB = b < 2 ? s.Players[b].ExternalVelocity : Vector2.zero;
+            float ordinaryWeight = 1f;
+            if (r.UsesRefinedHandfeel && a < 2 && b >= 2 && s.Players[a].DashTicks == 0)
+            {
+                // All three projections precede this contact's base impulse. Incoming
+                // ball energy or backwards recoil must not masquerade as active drive.
+                float drive = Mathf.Max(0f, Vector2.Dot(s.Players[a].ControlVelocity, n));
+                float approach = Mathf.Max(0f, Vector2.Dot(s.Players[a].Velocity, n));
+                float relative = Mathf.Max(0f, closing);
+                ordinaryWeight = Mathf.Clamp01(Mathf.Min(drive, Mathf.Min(approach, relative)) / r.NormalSpeed);
+            }
             float beforeBallSpeed = b >= 2 ? s.Balls[b - 2].Velocity.magnitude : 0;
             if (a < 2 && s.Players[a].PurpleTicks > 0) invA = 0;
             if (b < 2 && s.Players[b].PurpleTicks > 0) invB = 0;
@@ -426,8 +444,13 @@ namespace PocketBump
                 StopDrivingInto(s, a, n);
                 StopDrivingInto(s, b, -n);
             }
-            if (latched || a >= 2) return;
-            float strengthA = Outgoing(s, a, b >= 2);
+            if (latched || a >= 2)
+            {
+                if (a < 2) CompleteDynamicContact(s, a, beforeExternalA, false);
+                if (b < 2) CompleteDynamicContact(s, b, beforeExternalB, false);
+                return;
+            }
+            float strengthA = Outgoing(s, a, b >= 2) * ordinaryWeight;
             if (b < 2)
             {
                 AddVelocity(s, a, -n * Outgoing(s, b, false));
@@ -443,7 +466,19 @@ namespace PocketBump
                     s.Balls[b - 2].DangerousImpactCount++;
                 }
             }
+            CompleteDynamicContact(s, a, beforeExternalA);
+            if (b < 2) CompleteDynamicContact(s, b, beforeExternalB);
             Emit(s, events, DashArenaEventKind.Impact, a, b, (pa + pb) / 2f);
+        }
+
+        static void CompleteDynamicContact(DashArenaState s, int seat, Vector2 beforeExternal, bool newContact = true)
+        {
+            if (!s.Rules.UsesRefinedHandfeel) return;
+            ref DashPlayerState p = ref s.Players[seat];
+            if (p.ExternalVelocity.Equals(Vector2.zero)) p.RecoilGraceTicks = 0;
+            // Exact accepted change, not Unity's approximate operator and not the
+            // requested impulse (armor/capping can reject it). Called once per new pair.
+            else if (newContact && !p.ExternalVelocity.Equals(beforeExternal)) p.RecoilGraceTicks = s.Rules.RecoilGraceTicks;
         }
 
         static float Outgoing(DashArenaState s, int seat, bool ball)
@@ -486,6 +521,7 @@ namespace PocketBump
             p.RespawnTicks = s.Rules.RespawnTicks;
             p.GreenTicks = p.PurpleTicks = p.StunTicks = 0;
             p.ControlVelocity = p.ExternalVelocity = Vector2.zero;
+            p.RecoilGraceTicks = 0;
             ClearPlayerContacts(s, seat);
             Emit(s, events, DashArenaEventKind.Fell, seat, seat, p.Position);
         }
@@ -502,6 +538,7 @@ namespace PocketBump
                     p.Alive = true;
                     p.Position = point;
                     p.ControlVelocity = p.ExternalVelocity = Vector2.zero;
+                    p.RecoilGraceTicks = 0;
                     ClearPlayerContacts(s, seat);
                     Emit(s, events, DashArenaEventKind.Respawned, seat, seat, point);
                     break;
@@ -594,6 +631,7 @@ namespace PocketBump
                 InterruptDash(s, seat);
                 s.Players[seat].Position = point;
                 s.Players[seat].ControlVelocity = s.Players[seat].ExternalVelocity = Vector2.zero;
+                s.Players[seat].RecoilGraceTicks = 0;
                 ClearPlayerContacts(s, seat);
                 Emit(s, events, DashArenaEventKind.Teleport, seat, pickupId, point);
                 return true;

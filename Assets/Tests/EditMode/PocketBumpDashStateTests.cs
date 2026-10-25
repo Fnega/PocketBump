@@ -71,16 +71,20 @@ namespace PocketBump.Tests
                 Assert.That(property.GetValue(copy), Is.Not.SameAs(property.GetValue(source)), property.Name);
         }
 
-        [Test]
-        public void EveryAuthoritativeScalarAndArrayElementAffectsChecksumAndIsDeepCopied()
+        [TestCase(false)]
+        [TestCase(true)]
+        public void EveryAuthoritativeScalarAndArrayElementAffectsChecksumAndIsDeepCopied(bool handfeel)
         {
             // A deliberately populated schema fixture, not a naturally reached game state.
             // Enumerating fields catches newly added value fields forgotten by copy/hash code.
-            DashArenaState baseline = PopulatedState(3);
+            DashArenaState baseline = PopulatedState(3, handfeel);
             int expectedHash = baseline.Checksum();
             int count = 0;
             foreach (Mutation mutation in Mutations(baseline))
             {
+                // Recoil phase is inactive in legacy schema 1. Every existing field
+                // retains its old coverage; schema 2 exercises the additional field.
+                if (!handfeel && mutation.Name.Contains("." + nameof(DashPlayerState.RecoilGraceTicks) + ".")) continue;
                 DashArenaState altered = baseline.Clone();
                 mutation.Apply(altered);
                 Assert.That(altered.Checksum(), Is.Not.EqualTo(expectedHash), mutation.Name + " absent from checksum");
@@ -241,9 +245,11 @@ namespace PocketBump.Tests
                 Assert.That(field.IsInitOnly, Is.True, field.Name);
         }
 
-        static DashArenaState PopulatedState(int ballCount = 3)
+        static DashArenaState PopulatedState(int ballCount = 3, bool handfeel = false)
         {
-            var state = new DashArenaState(ArenaRulesProfile.CreateGreybox(ballCount: ballCount), Seed, 3)
+            var profile = handfeel ? ArenaRulesProfile.CreateHandfeelCandidate(ballCount: ballCount)
+                : ArenaRulesProfile.CreateGreybox(ballCount: ballCount);
+            var state = new DashArenaState(profile, Seed, 3)
             {
                 Tick = 137, Phase = MatchState.Live, PhaseTicks = 7, GateClosed = false,
                 LastScorer = 1, RandomState = 0xabcdef12u, NextPickupId = 42, SpawnTicks = 337
@@ -258,7 +264,8 @@ namespace PocketBump.Tests
                     ExternalVelocity = new Vector2(-5.25f, 6.5f + i),
                     Facing = new Vector2(0.6f, 0.8f), DashDirection = new Vector2(-0.8f, 0.6f),
                     Alive = i == 0, DashTicks = 7 + i, DashCooldownTicks = 19 + i,
-                    StunTicks = 23 + i, RespawnTicks = 29 + i, GreenTicks = 31 + i, PurpleTicks = 37 + i
+                    StunTicks = 23 + i, RespawnTicks = 29 + i, GreenTicks = 31 + i, PurpleTicks = 37 + i,
+                    RecoilGraceTicks = handfeel ? 5 - i : 0
                 };
             for (int i = 0; i < state.Balls.Length; i++)
                 state.Balls[i] = new DashBallState

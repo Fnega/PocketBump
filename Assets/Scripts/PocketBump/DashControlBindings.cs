@@ -18,8 +18,10 @@ namespace PocketBump
     {
         public const KeyCode DefaultP1Dash = KeyCode.K;
         public const KeyCode DefaultP2Dash = KeyCode.Keypad2;
+        public const KeyCode DefaultMinimapToggle = KeyCode.M;
         public const string P1PreferenceKey = "PocketBump.P1Dash";
         public const string P2PreferenceKey = "PocketBump.P2Dash";
+        public const string MinimapPreferenceKey = "PocketBump.MinimapToggle";
         const string LegacyP1Boost = "PocketBump.P1Boost";
         const string LegacyP2Boost = "PocketBump.P2Boost";
 
@@ -27,6 +29,7 @@ namespace PocketBump
         bool _loaded;
         KeyCode _p1Dash = DefaultP1Dash;
         KeyCode _p2Dash = DefaultP2Dash;
+        KeyCode _minimapToggle = DefaultMinimapToggle;
 
         public DashControlBindings() : this(new PlayerPrefsStore()) { }
         public DashControlBindings(IDashBindingStore store)
@@ -36,6 +39,7 @@ namespace PocketBump
 
         public KeyCode P1Dash { get { EnsureLoaded(); return _p1Dash; } }
         public KeyCode P2Dash { get { EnsureLoaded(); return _p2Dash; } }
+        public KeyCode MinimapToggle { get { EnsureLoaded(); return _minimapToggle; } }
 
         public KeyCode Dash(int bindingIndex)
         {
@@ -47,9 +51,18 @@ namespace PocketBump
         {
             RequireSeat(bindingIndex);
             EnsureLoaded();
-            if (!IsAllowedDashKey(key) || key == Dash(1 - bindingIndex)) return false;
+            if (!IsAllowedDashKey(key) || key == Dash(1 - bindingIndex) || key == _minimapToggle) return false;
             if (bindingIndex == 0) _p1Dash = key;
             else _p2Dash = key;
+            Save();
+            return true;
+        }
+
+        public bool TrySetMinimapToggle(KeyCode key)
+        {
+            EnsureLoaded();
+            if (!IsAllowedDashKey(key) || key == _p1Dash || key == _p2Dash) return false;
+            _minimapToggle = key;
             Save();
             return true;
         }
@@ -58,6 +71,7 @@ namespace PocketBump
         {
             _p1Dash = DefaultP1Dash;
             _p2Dash = DefaultP2Dash;
+            _minimapToggle = DefaultMinimapToggle;
             _loaded = true;
             if (persist) Save();
         }
@@ -70,6 +84,14 @@ namespace PocketBump
             _p2Dash = Read(P2PreferenceKey, LegacyP2Boost, DefaultP2Dash);
             if (!IsAllowedDashKey(_p1Dash) || !IsAllowedDashKey(_p2Dash) || _p1Dash == _p2Dash)
                 ResetToDefaults(false);
+            _minimapToggle = _store.HasKey(MinimapPreferenceKey)
+                ? (KeyCode)_store.GetInt(MinimapPreferenceKey, (int)DefaultMinimapToggle)
+                : DefaultMinimapToggle;
+            if (!IsAllowedDashKey(_minimapToggle)) _minimapToggle = DefaultMinimapToggle;
+            // A newly reserved/default map key may be an older Dash preference.
+            // Repair only that seat in memory; preserve the other valid binding.
+            if (_p1Dash == _minimapToggle) _p1Dash = FreeDashFallback(DefaultP1Dash, _p2Dash);
+            if (_p2Dash == _minimapToggle) _p2Dash = FreeDashFallback(DefaultP2Dash, _p1Dash);
             _loaded = true;
             // Loading and conflict recovery are read-only, including on first migration.
         }
@@ -101,7 +123,14 @@ namespace PocketBump
 
         public string PregameBanner()
         {
-            return "P1: WASD  " + Label(P1Dash) + " DASH     P2: ARROWS  " + Label(P2Dash) + " DASH";
+            return "P1: WASD  " + Label(P1Dash) + " DASH     P2: ARROWS  " + Label(P2Dash) + " DASH     MAP " + Label(MinimapToggle);
+        }
+
+        KeyCode FreeDashFallback(KeyCode preferred, KeyCode other)
+        {
+            foreach (KeyCode key in new[] { preferred, DefaultP1Dash, DefaultP2Dash, KeyCode.LeftShift })
+                if (key != other && key != _minimapToggle) return key;
+            throw new InvalidOperationException("No distinct local binding fallback.");
         }
 
         void EnsureLoaded()
@@ -120,6 +149,7 @@ namespace PocketBump
         {
             _store.SetInt(P1PreferenceKey, (int)_p1Dash);
             _store.SetInt(P2PreferenceKey, (int)_p2Dash);
+            _store.SetInt(MinimapPreferenceKey, (int)_minimapToggle);
             _store.Save();
         }
 

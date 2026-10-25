@@ -23,9 +23,12 @@ namespace PocketBump
         int? _listening;
         DashControlBindings _bindings;
         bool _hosting;
+        const int MinimapBindingSlot = 2;
+        public const string MinimapBindingCardName = "LocalMapBindingCard";
 
         public DashUiTheme Theme { get => _theme; set => _theme = value; }
-        public int? ListeningDashSeat => _listening;
+        public int? ListeningDashSeat => _listening == MinimapBindingSlot ? null : _listening;
+        public bool ListeningForMinimap => _listening == MinimapBindingSlot;
         DashControlBindings Bindings => _bindings ?? (_bindings = new DashControlBindings());
 
         void Awake()
@@ -42,6 +45,7 @@ namespace PocketBump
             EnsureSettingsUi();
             EnsureMovementPrompts();
             DashDemoHomeUi.Install(this);
+            InstallMinimapBindingSettings();
             if (created) ApplyThemeToAuthoredHierarchy();
             WireButtons();
             ShowRules(session.ConsumeOpenRulesRequest());
@@ -63,6 +67,7 @@ namespace PocketBump
             EnsureSettingsUi();
             EnsureMovementPrompts();
             DashDemoHomeUi.Install(this);
+            InstallMinimapBindingSettings();
             WireButtons();
             ShowRules(false);
             ShowJoin(false);
@@ -86,7 +91,9 @@ namespace PocketBump
                 if (Input.GetKeyDown(KeyCode.Escape)) demo.CloseHelp();
                 return;
             }
-            if (_rulesPanel == null || !_rulesPanel.activeSelf) return;
+            bool rulesOpen = _rulesPanel != null && _rulesPanel.activeSelf;
+            bool settingsOpen = _settingsPanel != null && _settingsPanel.activeSelf;
+            if (!rulesOpen && !settingsOpen) return;
 
             if (_listening.HasValue)
             {
@@ -105,7 +112,10 @@ namespace PocketBump
             }
 
             if (Input.GetKeyDown(KeyCode.Escape))
-                ShowRules(false);
+            {
+                if (settingsOpen) ShowSettings(false);
+                else ShowRules(false);
+            }
         }
 
         // 代码化创建默认 UI，使空场景也能启动，并为 PlayMode 测试提供稳定对象名称。
@@ -396,6 +406,7 @@ namespace PocketBump
         void ShowSettings(bool show)
         {
             if (_settingsPanel == null) return;
+            _listening = null;
             if (show)
             {
                 _listening = null;
@@ -410,6 +421,39 @@ namespace PocketBump
                 if ((_rulesPanel == null || !_rulesPanel.activeSelf) && (_joinPanel == null || !_joinPanel.activeSelf))
                     _mainPanel.SetActive(true);
             }
+            SetBindingHint("CLICK TO CHANGE / ESC CANCELS");
+            RefreshBindings();
+        }
+
+        // Explicit additive authoring also used by empty-menu fixtures. Saved
+        // menus keep all existing controls, positions, colours and unknown children.
+        public bool InstallMinimapBindingSettings()
+        {
+            Transform settings = transform.Find("MainMenuCanvas/SettingsPanel");
+            if (settings == null) throw new InvalidOperationException("Existing SettingsPanel is required for the local map binding.");
+            Transform existing = settings.Find(MinimapBindingCardName);
+            if (existing != null)
+            {
+                if (existing.Find("MinimapToggleBind")?.GetComponent<Button>() == null ||
+                    existing.Find("MinimapDefault")?.GetComponent<Button>() == null ||
+                    existing.Find("MapBindingHint")?.GetComponent<TMP_Text>() == null)
+                    throw new InvalidOperationException("Existing local-map settings card is incomplete; it was not overwritten.");
+                return false;
+            }
+            Color panel = _theme != null ? _theme.Panel : VisualPalette.WithAlpha(VisualPalette.TabletopAccent, .94f);
+            Transform card = UiFactory.Panel(settings, MinimapBindingCardName, new Vector2(1f, .5f),
+                new Vector2(170f, 0f), new Vector2(300f, 190f), panel).transform;
+            UiFactory.Text(card, "MapBindingTitle", "LOCAL MAP", 25f, TextAlignmentOptions.Center,
+                new Vector2(.5f, .86f), Vector2.zero, new Vector2(280f, 34f), VisualPalette.Text);
+            UiFactory.Button(card, "MinimapToggleBind", "MAP  M", new Vector2(.5f, .61f), Vector2.zero,
+                new Vector2(250f, 48f), VisualPalette.PlayerOne, BeginListenMinimap);
+            UiFactory.Button(card, "MinimapDefault", "RESET TO M", new Vector2(.5f, .33f), Vector2.zero,
+                new Vector2(250f, 38f), VisualPalette.Wall, ResetMinimapBinding);
+            UiFactory.Text(card, "MapBindingHint", "CLICK TO CHANGE / ESC CANCELS", 13f, TextAlignmentOptions.Center,
+                new Vector2(.5f, .09f), Vector2.zero, new Vector2(280f, 28f), VisualPalette.Text);
+            TMP_FontAsset font = settings.Find("SettingsHint")?.GetComponent<TMP_Text>()?.font;
+            if (font != null) foreach (TMP_Text text in card.GetComponentsInChildren<TMP_Text>(true)) text.font = font;
+            return true;
         }
 
         void SetDisplayMode(DisplayModeChoice mode)
@@ -685,6 +729,8 @@ namespace PocketBump
                     case "MARBLESPlus": button.onClick.AddListener(() => Nudge(false, 1)); break;
                     case "P1DashBind": button.onClick.AddListener(() => BeginListen(0)); break;
                     case "P2DashBind": button.onClick.AddListener(() => BeginListen(1)); break;
+                    case "MinimapToggleBind": button.onClick.AddListener(BeginListenMinimap); break;
+                    case "MinimapDefault": button.onClick.AddListener(ResetMinimapBinding); break;
                 }
             }
             GetComponent<DashDemoHomeUi>()?.Wire();
@@ -743,32 +789,53 @@ namespace PocketBump
             RefreshBindings();
         }
 
+        void BeginListenMinimap()
+        {
+            if (_settingsPanel == null || !_settingsPanel.activeSelf) return;
+            _listening = MinimapBindingSlot;
+            SetBindingHint("PRESS MAP KEY / ESC CANCELS");
+            RefreshBindings();
+        }
+
+        void ResetMinimapBinding()
+        {
+            _listening = null;
+            bool saved = Bindings.TrySetMinimapToggle(DashControlBindings.DefaultMinimapToggle);
+            SetBindingHint(saved ? "MAP KEY SAVED" : "M IS USED BY A DASH KEY");
+            RefreshBindings();
+        }
+
         // The same capture path serves keyboard polling and deterministic UI tests.
         // Invalid/conflicting keys keep listening and explicitly report rejection.
         public bool SubmitBindingKey(KeyCode key)
         {
-            if (!_listening.HasValue || _rulesPanel == null || !_rulesPanel.activeSelf) return false;
+            if (!_listening.HasValue) return false;
+            bool map = _listening == MinimapBindingSlot;
+            GameObject panel = map ? _settingsPanel : _rulesPanel;
+            if (panel == null || !panel.activeSelf) return false;
             if (key == KeyCode.Escape)
             {
                 _listening = null;
-                SetBindingHint("CLICK A KEY THEN PRESS A NEW KEY  ·  ESC CANCELS");
+                SetBindingHint(map ? "CLICK TO CHANGE / ESC CANCELS" : "CLICK A KEY THEN PRESS A NEW KEY  ·  ESC CANCELS");
                 RefreshBindings();
                 return false;
             }
-            if (!Bindings.TrySet(_listening.Value, key))
+            if (!(map ? Bindings.TrySetMinimapToggle(key) : Bindings.TrySet(_listening.Value, key)))
             {
-                SetBindingHint("KEY UNAVAILABLE: MOVEMENT OR OTHER DASH KEY  ·  ESC CANCELS");
+                SetBindingHint(map ? "KEY USED / RESERVED / ESC CANCELS" : "KEY UNAVAILABLE: MOVEMENT, DASH OR MAP KEY  ·  ESC CANCELS");
                 return false;
             }
             _listening = null;
-            SetBindingHint("DASH KEY SAVED  ·  CLICK A KEY TO CHANGE IT");
+            SetBindingHint(map ? "MAP KEY SAVED" : "DASH KEY SAVED  ·  CLICK A KEY TO CHANGE IT");
             RefreshBindings();
             return true;
         }
 
         void SetBindingHint(string value)
         {
-            Transform found = _rulesPanel != null ? _rulesPanel.transform.Find("RebindHint") : null;
+            Transform found = _settingsPanel != null && _settingsPanel.activeSelf
+                ? _settingsPanel.transform.Find(MinimapBindingCardName + "/MapBindingHint")
+                : _rulesPanel != null ? _rulesPanel.transform.Find("RebindHint") : null;
             if (found != null) found.GetComponent<TextMeshProUGUI>().text = value;
         }
 
@@ -814,6 +881,10 @@ namespace PocketBump
         {
             SetBindLabel("P1DashBind", 0, Bindings.P1Dash);
             SetBindLabel("P2DashBind", 1, Bindings.P2Dash);
+            TMP_Text map = _settingsPanel != null
+                ? _settingsPanel.transform.Find(MinimapBindingCardName + "/MinimapToggleBind")?.GetComponentInChildren<TMP_Text>(true)
+                : null;
+            if (map != null) map.text = ListeningForMinimap ? "MAP  ..." : "MAP  " + DashControlBindings.Label(Bindings.MinimapToggle);
         }
 
         void SetBindLabel(string buttonName, int seat, KeyCode key)

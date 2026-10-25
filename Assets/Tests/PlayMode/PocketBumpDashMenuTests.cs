@@ -18,7 +18,7 @@ namespace PocketBump.Tests
     public sealed class PocketBumpDashMenuTests
     {
         static readonly string[] PreferenceKeys = {
-            DashControlBindings.P1PreferenceKey, DashControlBindings.P2PreferenceKey,
+            DashControlBindings.P1PreferenceKey, DashControlBindings.P2PreferenceKey, DashControlBindings.MinimapPreferenceKey,
             "PocketBump.P1Boost", "PocketBump.P2Boost", "PocketBump.P1Shoot", "PocketBump.P2Shoot",
             "PocketBump.DisplayMode"
         };
@@ -262,6 +262,61 @@ namespace PocketBump.Tests
             Click("Start");
             Assert.That(RuleText("POINTS TO WINValue").text, Is.EqualTo("7"));
             Assert.That(RuleText("MARBLESValue").text, Is.EqualTo("2"));
+        }
+
+        [Test]
+        public void SettingsMapBindingSupportsConflictCancelSaveReloadAndDefault()
+        {
+            Build(); Click("Settings");
+            Assert.That(Label("MinimapToggleBind"), Is.EqualTo("MAP  M"));
+            Click("MinimapToggleBind");
+            Assert.That(_menu.ListeningForMinimap, Is.True);
+            Assert.That(_menu.ListeningDashSeat, Is.Null);
+            Assert.That(_menu.SubmitBindingKey(KeyCode.K), Is.False);
+            Assert.That(_menu.ListeningForMinimap, Is.True);
+            Assert.That(PlayerPrefs.HasKey(DashControlBindings.MinimapPreferenceKey), Is.False);
+            Assert.That(_menu.SubmitBindingKey(KeyCode.Escape), Is.False);
+            Assert.That(_menu.ListeningForMinimap, Is.False);
+            Click("MinimapToggleBind"); Assert.That(_menu.SubmitBindingKey(KeyCode.Tab), Is.True);
+            Assert.That(Label("MinimapToggleBind"), Is.EqualTo("MAP  Tab"));
+            Assert.That(new DashControlBindings().MinimapToggle, Is.EqualTo(KeyCode.Tab));
+            Click("SettingsBack"); Click("Start"); Click("P1DashBind");
+            Assert.That(_menu.SubmitBindingKey(KeyCode.Tab), Is.False);
+            Assert.That(_menu.SubmitBindingKey(KeyCode.Escape), Is.False);
+            Click("Back"); Click("Settings"); Click("MinimapDefault");
+            Assert.That(new DashControlBindings().MinimapToggle, Is.EqualTo(KeyCode.M));
+            Assert.That(Label("MinimapToggleBind"), Is.EqualTo("MAP  M"));
+        }
+
+        [Test]
+        public void LeavingSettingsCancelsMapCaptureAndDoesNotWriteOrChangeRules()
+        {
+            Build(); Click("Start"); Click("MARBLESPlus"); Click("Back");
+            Click("Settings"); Click("MinimapToggleBind"); Click("SettingsBack");
+            Assert.That(_menu.ListeningForMinimap, Is.False);
+            Assert.That(_menu.SubmitBindingKey(KeyCode.Tab), Is.False);
+            Assert.That(PlayerPrefs.HasKey(DashControlBindings.MinimapPreferenceKey), Is.False);
+            Click("Start"); Assert.That(RuleText("MARBLESValue").text, Is.EqualTo("2"));
+        }
+
+        [Test]
+        public void ExistingMapSettingsCardPreservesArtistStylesUnknownChildrenAndOldLayout()
+        {
+            Build(); Transform settings = Panel("SettingsPanel");
+            Transform card = settings.Find(MainMenuController.MinimapBindingCardName);
+            Vector2 oldSize = ((RectTransform)settings).sizeDelta;
+            Vector2 windowAnchor = ((RectTransform)Button("Windowed").transform).anchorMin;
+            Image image = card.GetComponent<Image>(); image.color = Color.magenta;
+            ((RectTransform)card).anchoredPosition += new Vector2(3, 7);
+            Vector2 edited = ((RectTransform)card).anchoredPosition;
+            var custom = new GameObject("Map artist child"); custom.transform.SetParent(card, false);
+            Assert.That(_menu.InstallMinimapBindingSettings(), Is.False);
+            Assert.That(image.color, Is.EqualTo(Color.magenta));
+            Assert.That(((RectTransform)card).anchoredPosition, Is.EqualTo(edited));
+            Assert.That(custom.transform.parent, Is.SameAs(card));
+            Assert.That(((RectTransform)settings).sizeDelta, Is.EqualTo(oldSize));
+            Assert.That(((RectTransform)Button("Windowed").transform).anchorMin, Is.EqualTo(windowAnchor));
+            Assert.That(settings.GetComponentsInChildren<Button>(true).Count(b => b.name == "MinimapToggleBind"), Is.EqualTo(1));
         }
 
         [Test]

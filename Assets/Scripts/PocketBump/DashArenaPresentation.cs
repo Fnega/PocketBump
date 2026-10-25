@@ -211,15 +211,30 @@ namespace PocketBump
             foreach (Renderer renderer in _occluders)
             {
                 if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
-                bool covers = Covers(camera, renderer.bounds, _views.Players[seat].Root.position + Vector3.up);
-                for (int i = 0; !covers && i < _state.Balls.Length; i++)
-                    if (_state.Balls[i].Active) covers = Covers(camera, renderer.bounds, _views.Balls[i].Root.position);
-                if (!covers) continue;
+                if (!CoversProtectedSubjects(camera, renderer, seat)) continue;
                 Material[] original = renderer.sharedMaterials, temporary = new Material[original.Length];
                 for (int i = 0; i < original.Length; i++) temporary[i] = Fade(original[i]);
                 _restored[renderer] = original;
                 renderer.sharedMaterials = temporary;
             }
+        }
+        // Read-only visibility query for viewport overlays. It shares exactly the
+        // existing own-player/active-ball fade eligibility; opponents do not add new
+        // fade targets and querying never creates or replaces a material.
+        public bool WouldFadeObstacleForCamera(Camera camera, Renderer renderer)
+        {
+            if (_state == null || camera == null || !camera.enabled || renderer == null ||
+                !renderer.enabled || !renderer.gameObject.activeInHierarchy || !_occluders.Contains(renderer)) return false;
+            int index = Array.IndexOf(_views.GameplayCameras, camera);
+            if (index < 0 || (_isLan && index != 0)) return false;
+            return CoversProtectedSubjects(camera, renderer, _isLan ? _localSeat : index);
+        }
+        bool CoversProtectedSubjects(Camera camera, Renderer renderer, int seat)
+        {
+            bool covers = Covers(camera, renderer.bounds, _views.Players[seat].Root.position + Vector3.up);
+            for (int i = 0; !covers && i < _state.Balls.Length; i++)
+                if (_state.Balls[i].Active) covers = Covers(camera, renderer.bounds, _views.Balls[i].Root.position);
+            return covers;
         }
         public void EndCameraOcclusion(Camera camera) => RestoreOcclusion();
         void RestoreOcclusion()

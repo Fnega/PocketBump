@@ -43,6 +43,9 @@ namespace PocketBump
         DashMatchDirector _director;
         bool _wired, _lan;
         int _localSeat, _epoch = -1;
+        bool _localMinimapsVisible = true, _ownsLocalMinimapVisibility;
+        readonly GameObject[] _localMinimapObjects = new GameObject[2];
+        readonly bool[] _minimapWasActive = new bool[2];
 
         public event Action MainMenuRequested;
         public event Action ModifyRulesRequested;
@@ -56,7 +59,9 @@ namespace PocketBump
         public bool ResultVisible => _resultPanel != null && _resultPanel.activeSelf;
         public SeatView[] Seats => _seats;
         public DashMatchDirector Director => _director;
+        public bool LocalMinimapsVisible => _localMinimapsVisible;
         public string MessageForSeat(int seat) => _messages[seat];
+        public Color PlayerIdentityColor(int seat) => seat == 0 ? _playerOneColor : _playerTwoColor;
 
         public static DashMatchHud Build(Transform parent, TMP_FontAsset approvedFont)
         {
@@ -120,6 +125,7 @@ namespace PocketBump
             hud._networkMainMenu = ButtonAt(issue, "NetworkMainMenu", "MAIN MENU / 返回主菜单", approvedFont, ink, button, .16f);
             issue.gameObject.SetActive(false);
             hud.InstallMinimapAndUpgradeLayout();
+            DashReadinessHud.Install(hud);
             DashDemoMatchMenu.Install(hud);
             hud.WireButtons();
             return hud;
@@ -258,14 +264,67 @@ namespace PocketBump
         }
         public void Bind(DashMatchDirector director)
         {
-            if (director != _director || _epoch != director.MatchEpoch) ClearPickupMessages();
+            if (director != _director || _epoch != director.MatchEpoch)
+            {
+                ClearPickupMessages();
+                RestoreLocalMinimapVisibility();
+                _localMinimapsVisible = true;
+            }
             _director = director; _epoch = director.MatchEpoch;
             WireButtons(); RefreshFromDirector();
         }
+
+        // The choice belongs to this local match, never to the simulation or saved
+        // scene. Both split-screen views share it; the full Regions stay active.
+        public bool ToggleLocalMinimaps()
+        {
+            if (_director == null || _director.Kind != PlayKind.Local || _director.Sim == null) return false;
+            CaptureLocalMinimapVisibility();
+            _localMinimapsVisible = !_localMinimapsVisible;
+            ApplyLocalMinimapVisibility();
+            return true;
+        }
+
+        void CaptureLocalMinimapVisibility()
+        {
+            if (_ownsLocalMinimapVisibility || _seats == null) return;
+            for (int seat = 0; seat < _localMinimapObjects.Length; seat++)
+            {
+                GameObject map = seat < _seats.Length && _seats[seat]?.Minimap != null ? _seats[seat].Minimap.gameObject : null;
+                _localMinimapObjects[seat] = map;
+                _minimapWasActive[seat] = map != null && map.activeSelf;
+            }
+            _ownsLocalMinimapVisibility = true;
+        }
+
+        void ApplyLocalMinimapVisibility()
+        {
+            foreach (GameObject map in _localMinimapObjects)
+                if (map != null && map.activeSelf != _localMinimapsVisible) map.SetActive(_localMinimapsVisible);
+        }
+
+        void RestoreLocalMinimapVisibility()
+        {
+            if (!_ownsLocalMinimapVisibility) return;
+            for (int seat = 0; seat < _localMinimapObjects.Length; seat++)
+            {
+                GameObject map = _localMinimapObjects[seat];
+                if (map != null) map.SetActive(_minimapWasActive[seat]);
+                _localMinimapObjects[seat] = null;
+            }
+            _ownsLocalMinimapVisibility = false;
+        }
+
         public void RefreshFromDirector()
         {
             if (_director == null || _director.Sim == null || _seats == null) return;
             _lan = _director.Kind != PlayKind.Local; _localSeat = _director.LocalSeat;
+            if (_lan) RestoreLocalMinimapVisibility();
+            else
+            {
+                CaptureLocalMinimapVisibility();
+                ApplyLocalMinimapVisibility();
+            }
             DashArenaState state = _director.Sim;
             _score.text = "<color=#" + ColorUtility.ToHtmlStringRGB(_playerOneColor) + ">P1  " + state.Scores[0] + "</color>  :  <color=#" +
                 ColorUtility.ToHtmlStringRGB(_playerTwoColor) + ">" + state.Scores[1] + "  P2</color>";

@@ -108,11 +108,17 @@ namespace PocketBump
                 marbleCount = settings?.marbleCount ?? MatchSettings.DefaultMarbleCount
             };
             copy.Clamp();
-            var rules = ArenaRulesProfile.CreateProductionV1(copy.pointsToWin, copy.marbleCount);
+            bool handfeelPreview = false;
+#if UNITY_EDITOR
+            handfeelPreview = DashHandfeelPreview.Selected;
+#endif
+            var rules = handfeelPreview
+                ? ArenaRulesProfile.CreateHandfeelCandidate(copy.pointsToWin, copy.marbleCount)
+                : ArenaRulesProfile.CreateProductionV1(copy.pointsToWin, copy.marbleCount);
             _gameSession = GameSession.Ensure();
             if (_gameSession.Kind == PlayKind.Local)
             {
-                InitializeLocal(rules, NewSeed(), startImmediately);
+                InitializeLocal(rules, NewSeed(), startImmediately, allowHandfeelCandidate: handfeelPreview);
                 return;
             }
             NetworkInitializationEndpoint = (_gameSession.Kind == PlayKind.HostLan ? "0.0.0.0" : _gameSession.JoinAddress) + ":" + ArenaLayout.LanPort;
@@ -129,27 +135,32 @@ namespace PocketBump
                 {
                     int matchId = BitConverter.ToInt32(Guid.NewGuid().ToByteArray(), 0);
                     if (matchId == 0) matchId = 1;
-                    InitializeLan(DashLanSession.Host(rules, matchId, NewSeed(), () => Time.realtimeSinceStartup, ArenaLayout.LanPort));
+                    InitializeLan(DashLanSession.Host(rules, matchId, NewSeed(), () => Time.realtimeSinceStartup, ArenaLayout.LanPort,
+                        allowHandfeelCandidate: handfeelPreview));
                     return;
                 }
                 if (!IPAddress.TryParse(_gameSession.JoinAddress, out IPAddress address))
                 {
-                    FreezeInitialization(rules, PlayKind.JoinLan, "BAD ADDRESS", _gameSession.JoinAddress);
+                    FreezeInitializationWithProfile(rules, PlayKind.JoinLan, "BAD ADDRESS", _gameSession.JoinAddress, handfeelPreview);
                     return;
                 }
-                InitializeLan(DashLanSession.Join(rules, new IPEndPoint(address, ArenaLayout.LanPort), () => Time.realtimeSinceStartup));
+                InitializeLan(DashLanSession.Join(rules, new IPEndPoint(address, ArenaLayout.LanPort), () => Time.realtimeSinceStartup,
+                    allowHandfeelCandidate: handfeelPreview));
             }
             catch (SocketException error)
             {
-                FreezeInitialization(rules, _gameSession.Kind,
+                FreezeInitializationWithProfile(rules, _gameSession.Kind,
                     _gameSession.Kind == PlayKind.HostLan ? "COULD NOT BIND PORT" : "COULD NOT OPEN SOCKET",
-                    error.SocketErrorCode + ": " + error.Message);
+                    error.SocketErrorCode + ": " + error.Message, handfeelPreview);
             }
         }
 
-        void FreezeInitialization(ArenaRulesProfile rules, PlayKind kind, string reason, string detail)
+        void FreezeInitialization(ArenaRulesProfile rules, PlayKind kind, string reason, string detail) =>
+            FreezeInitializationWithProfile(rules, kind, reason, detail, false);
+
+        void FreezeInitializationWithProfile(ArenaRulesProfile rules, PlayKind kind, string reason, string detail, bool allowHandfeelCandidate)
         {
-            if (!_initialized) InitializeCore(rules, kind, null);
+            if (!_initialized) InitializeCore(rules, kind, null, allowHandfeelCandidate);
             Sim = Sim ?? DashArenaSimulation.Create(rules, 1u); // Non-playable pre-handshake display.
             _failure = reason;
             NetworkInitializationError = detail;
@@ -157,11 +168,11 @@ namespace PocketBump
         }
 
         public void InitializeLocal(ArenaRulesProfile rules, uint seed = 1u, bool startImmediately = true,
-            DashTickInputSampler sampler = null)
+            DashTickInputSampler sampler = null, bool allowHandfeelCandidate = false)
         {
             if (_initialized) return;
             if (seed == 0) throw new ArgumentOutOfRangeException(nameof(seed));
-            InitializeCore(rules, PlayKind.Local, sampler);
+            InitializeCore(rules, PlayKind.Local, sampler, allowHandfeelCandidate);
             Sim = DashArenaSimulation.Create(rules, seed);
             if (startImmediately) DashArenaSimulation.StartMatch(Sim);
             InitializeEpoch(0);
@@ -173,7 +184,7 @@ namespace PocketBump
             if (session == null) throw new ArgumentNullException(nameof(session));
             if (_initialized) return;
             if (session.Left) throw new ArgumentException("Cannot attach a departed session.", nameof(session));
-            InitializeCore(session.Rules, session.LocalSeat == 0 ? PlayKind.HostLan : PlayKind.JoinLan, sampler);
+            InitializeCore(session.Rules, session.LocalSeat == 0 ? PlayKind.HostLan : PlayKind.JoinLan, sampler, session.HandfeelCandidateAllowed);
             LanSession = session;
             session.EpochInitialized += OnLanEpoch;
             session.ConfirmedEvents += PresentConfirmed;
@@ -184,10 +195,11 @@ namespace PocketBump
             RefreshFailure();
         }
 
-        void InitializeCore(ArenaRulesProfile rules, PlayKind kind, DashTickInputSampler sampler)
+        void InitializeCore(ArenaRulesProfile rules, PlayKind kind, DashTickInputSampler sampler, bool allowHandfeelCandidate = false)
         {
             if (rules == null) throw new ArgumentNullException(nameof(rules));
-            if (rules.IsProvisional) throw new ArgumentException("Production director requires approved rules.", nameof(rules));
+            if (rules.IsProvisional && !DashHandfeelPreview.Allows(rules, allowHandfeelCandidate))
+                throw new ArgumentException("Production director requires approved rules or an explicitly enabled development handfeel candidate.", nameof(rules));
             Rules = rules;
             Settings = new MatchSettings { pointsToWin = rules.PointsToWin, marbleCount = rules.BallCount };
             Kind = kind;
@@ -208,7 +220,19 @@ namespace PocketBump
         void Update()
         {
             if (_initialized && !_left && Input.GetKeyDown(KeyCode.Escape)) SetMenuOpen(!MenuOpen);
+            // View-only edge input is deliberately outside the tick sampler: holding
+            // the key cannot repeat and no map action enters replay/network packets.
+            if (_initialized && !_left && Kind == PlayKind.Local && !MenuOpen &&
+                Input.GetKeyDown(Bindings.MinimapToggle)) TryToggleLocalMinimaps();
             if (_automaticTicking) PumpFrame();
+        }
+
+        public bool TryToggleLocalMinimaps()
+        {
+            if (!_initialized || _left || Kind != PlayKind.Local || MenuOpen || _hud == null || _hud.Director != this) return false;
+            bool toggled = false;
+            Present(() => toggled = _hud.ToggleLocalMinimaps());
+            return toggled;
         }
 
         // A personal LAN menu cannot stop the other computer's clock. Local play
